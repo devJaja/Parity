@@ -58,6 +58,10 @@ contract DeployParity is Script, Deployers {
         ParityHook hook = _deployMinedHook(reserve, isAnvil);
         reserve.setHook(address(hook));
 
+        // The PositionManager attests position owners through hookData so LP attribution
+        // also works for smart wallets, whose tx.origin differs from the owner address.
+        hook.setRouterAuthorization(address(positionManager), true);
+
         _log(adapter, reserve, hook);
 
         if (!vm.envOr("PARITY_NO_SEED", false) && address(positionManager) != address(0)) {

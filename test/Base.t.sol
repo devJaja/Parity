@@ -88,6 +88,10 @@ abstract contract ParityTest is BaseTest {
 
         reserve.setHook(address(hook));
 
+        // Mirror production deployment: the canonical PositionManager attests position
+        // owners through hookData so LP attribution survives the identity corroboration.
+        hook.setRouterAuthorization(address(positionManager), true);
+
         vm.label(address(aggregator), "MockAggregator");
         vm.label(address(adapter), "ChainlinkPriceAdapter");
         vm.label(address(reserve), "LVRReserve");
@@ -139,7 +143,9 @@ abstract contract ParityTest is BaseTest {
         _approvePosm(who);
         (int24 lower, int24 upper) =
             (TickMath.minUsableTick(poolKey.tickSpacing), TickMath.maxUsableTick(poolKey.tickSpacing));
-        vm.startPrank(who);
+        // Two-arg prank sets tx.origin too, which ParityHook requires to corroborate
+        // hookData identity claims (production EOAs always satisfy tx.origin == user).
+        vm.startPrank(who, who);
         (tokenId,) = positionManager.mint(
             poolKey, lower, upper, liquidity, type(uint256).max, type(uint256).max, who, block.timestamp, abi.encode(who)
         );
@@ -173,11 +179,13 @@ abstract contract ParityTest is BaseTest {
     }
 
     /// @notice Exact-input swap executed by `who`, identity carried in hookData.
+    ///         Two-arg prank: tx.origin == who, corroborating the identity claim exactly
+    ///         as a production EOA-signed transaction would.
     function _swap(address who, bool zeroForOne, uint256 amountIn)
         internal
         returns (BalanceDelta delta)
     {
-        vm.startPrank(who);
+        vm.startPrank(who, who);
         delta = swapRouter.swapExactTokensForTokens({
             amountIn: amountIn,
             amountOutMin: 0,
@@ -195,7 +203,7 @@ abstract contract ParityTest is BaseTest {
         internal
         returns (BalanceDelta delta)
     {
-        vm.startPrank(who);
+        vm.startPrank(who, who);
         delta = swapRouter.swapTokensForExactTokens({
             amountOut: amountOut,
             amountInMax: type(uint256).max,
@@ -212,7 +220,7 @@ abstract contract ParityTest is BaseTest {
     ///      v4-core wraps hook reverts as WrappedError(target, selector, result, reason),
     ///      so we unwrap one level and assert on the inner DelayWindowActive payload.
     function _swapExpectingDelay(address who, uint256 amountIn, uint64 eligibleAtExpected) internal {
-        vm.startPrank(who);
+        vm.startPrank(who, who);
         (bool ok, bytes memory ret) = address(swapRouter).call(
             abi.encodeCall(
                 ISinglePoolExactIn.swapExactTokensForTokens,

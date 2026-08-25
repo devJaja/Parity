@@ -2,8 +2,8 @@
 pragma solidity ^0.8.26;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
-
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -49,6 +49,8 @@ contract LVRReserve is Ownable, IUnlockCallback {
         bool zeroForOne; // direction of the flagged trade
         uint128 liquidityAtBlock; // active pool liquidity during the affected block
         uint64 recordedBlock;
+        uint256 scaleNum; // decimal normalization: human price = raw * num / den
+        uint256 scaleDen;
     }
 
     /// @notice A verified-LVR compensation pot awaiting pro-rata distribution.
@@ -166,6 +168,10 @@ contract LVRReserve is Ownable, IUnlockCallback {
             refT0 = 0;
         }
 
+        // Resolve the pool's decimal normalization once so the execution anchor and the
+        // settle-time pool price share identical scaling.
+        (uint256 scaleNum, uint256 scaleDen) = _decimalScale(key.currency0, key.currency1);
+
         pendings.push(
             Pending({
                 key: key,
@@ -175,7 +181,9 @@ contract LVRReserve is Ownable, IUnlockCallback {
                 refPriceT0_18: refT0,
                 zeroForOne: zeroForOne,
                 liquidityAtBlock: liquidityAtBlock,
-                recordedBlock: uint64(block.number)
+                recordedBlock: uint64(block.number),
+                scaleNum: scaleNum,
+                scaleDen: scaleDen
             })
         );
         pendingIndex = pendings.length - 1;
@@ -217,7 +225,7 @@ contract LVRReserve is Ownable, IUnlockCallback {
         }
 
         DriftOutcome memory outcome =
-            _compareDrift(p.sqrtPriceT0, p.refPriceT0_18, p.zeroForOne, _price18(sqrtNow), refNow18, poolId);
+            _compareDrift(p.sqrtPriceT0, p.refPriceT0_18, p.zeroForOne, sqrtNow, p.scaleNum, p.scaleDen, refNow18, poolId);
         emit LvrVerificationResult(
             pendingIndex, poolId, outcome.verified, outcome.driftSigned, outcome.deviation0, outcome.noiseAbs, outcome.observedBps
         );
@@ -323,9 +331,12 @@ contract LVRReserve is Ownable, IUnlockCallback {
         uint256 remaining = payout.amount - payout.distributed;
         if (share > remaining) share = remaining;
 
-        payout.currency.transfer(lp, share);
+        // Checks-Effects-Interactions: book the payment BEFORE the token transfer so a
+        // receiving contract reentering `distributeVerified` observes updated state and
+        // can never draw against the same premium twice.
         payout.distributed += share;
         totalVerifiedPaid[poolId] += share;
+        payout.currency.transfer(lp, share);
         emit CompensationPaid(payoutIndex, poolId, lp, payout.currency, share);
 
         return (share, payout.amount - payout.distributed == 0);
@@ -430,19 +441,22 @@ contract LVRReserve is Ownable, IUnlockCallback {
         }
     }
 
-    /// @dev Pure comparison of doc §5.2 against current prices.
+    /// @dev Pure comparison of doc §5.2 against current prices. Anchor and current pool prices
+    ///      share the pending record's decimal scaling, so both are in human 18-decimal units.
     function _compareDrift(
         uint160 sqrtPriceT0,
         uint256 refT0_18,
         bool zeroForOne,
-        uint256 poolNow18,
+        uint160 sqrtNow,
+        uint256 scaleNum,
+        uint256 scaleDen,
         uint256 refNow18,
         PoolId poolId
     ) internal view returns (DriftOutcome memory o) {
-        int256 driftSigned = int256(poolNow18) - int256(refNow18);
+        int256 driftSigned = int256(_price18(sqrtNow, scaleNum, scaleDen)) - int256(refNow18);
         uint256 driftAbs = driftSigned < 0 ? uint256(-driftSigned) : uint256(driftSigned);
 
-        int256 devSigned = int256(_price18(sqrtPriceT0)) - int256(refT0_18);
+        int256 devSigned = int256(_price18(sqrtPriceT0, scaleNum, scaleDen)) - int256(refT0_18);
         o.deviation0 = devSigned < 0 ? uint256(-devSigned) : uint256(devSigned);
 
         o.driftSigned = driftSigned;
@@ -453,11 +467,38 @@ contract LVRReserve is Ownable, IUnlockCallback {
         o.verified = directionOk && driftAbs > o.deviation0 + o.noiseAbs;
     }
 
-    /// @dev Converts a square-root price to an 18-decimal price: sqrtP^2 * 1e18 / 2^192.
-    ///      Scale BEFORE dividing so sub-1.0 prices keep full precision; bounded by
-    ///      TickMath's sqrt range, the square cannot overflow uint256.
-    function _price18(uint160 sqrtP) internal pure returns (uint256) {
+    /// @dev Converts a square-root price to an 18-decimal HUMAN price:
+    ///      sqrtP^2 * 1e18 * scaleNum / (2^192 * scaleDen).
+    ///      scaleNum/scaleDen encode 10^(dec0-dec1) so raw smallest-unit ratios become
+    ///      human-unit prices comparable to the normalized Chainlink reference.
+    ///      Math.mulDiv handles the full 512-bit intermediate: sqrtP^2 alone can reach
+    ///      ~2^320 near TickMath's MAX_SQRT_RATIO, which would overflow plain uint256 math.
+    ///      Scaling happens BEFORE division so sub-1.0 prices keep full precision.
+    function _price18(uint160 sqrtP, uint256 scaleNum, uint256 scaleDen) internal pure returns (uint256) {
         uint256 sq = uint256(sqrtP);
-        return FixedPointMathLib.mulDivDown(sq * sq, 1e18, 1 << 192);
+        // Intermediate staging at raw*2^96 keeps every factor within range while
+        // preserving precision for prices far below 1.0.
+        uint256 shifted = Math.mulDiv(sq, sq, 1 << 96); // = raw price * 2^96
+        return Math.mulDiv(shifted, 1e18 * scaleNum, (1 << 96) * scaleDen);
+    }
+
+    /// @dev Human-price normalization for a pair: humanPrice = rawPrice * num / den,
+    ///      where num/den = 10^(dec0 - dec1). Native currency counts as 18 decimals;
+    ///      non-standard tokens fall back to 18 rather than reverting flagged flow.
+    function _decimalScale(Currency c0, Currency c1) internal view returns (uint256 num, uint256 den) {
+        uint256 d0 = _tokenDecimals(c0);
+        uint256 d1 = _tokenDecimals(c1);
+        if (d0 >= d1) return (10 ** (d0 - d1), 1);
+        return (1, 10 ** (d1 - d0));
+    }
+
+    function _tokenDecimals(Currency c) internal view returns (uint256) {
+        address token = Currency.unwrap(c);
+        if (token == address(0)) return 18;
+        try IERC20Metadata(token).decimals() returns (uint8 d) {
+            return d == 0 ? 18 : d; // 0 is never a meaningful ERC20 answer
+        } catch {
+            return 18;
+        }
     }
 }

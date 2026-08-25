@@ -219,7 +219,7 @@ contract ParityHookTest is ParityTest {
         int24 tickLower = -60;
         int24 tickUpper = 60;
 
-        vm.startPrank(lp2);
+        vm.startPrank(lp2, lp2);
         (uint256 tokenId,) = positionManager.mint(
             poolKey,
             tickLower,
@@ -238,7 +238,7 @@ contract ParityHookTest is ParityTest {
         uint256 netBefore = hook.lpNet(poolId, lp2);
         assertTrue(netBefore > 0);
 
-        vm.startPrank(lp2);
+        vm.startPrank(lp2, lp2);
         positionManager.decreaseLiquidity(tokenId, netBefore / 2, 0, 0, lp2, block.timestamp, abi.encode(lp2));
         vm.stopPrank();
         assertApproxEqRel(hook.lpNet(poolId, lp2), netBefore / 2, 0.01e18);

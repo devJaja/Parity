@@ -94,6 +94,10 @@ contract ParityHook is BaseHook, Ownable, IParityLpRegistry {
     mapping(PoolId => mapping(address => uint64)) internal lpLastChangeBlock_;
     mapping(PoolId => address[]) internal lpOwners_;
 
+    /// @notice Routers trusted to attest an end-user's identity via hookData (e.g., the v4
+    ///         PositionManager passing its position owner). Governance-managed.
+    mapping(address => bool) public isAuthorizedRouter;
+
     // ------------------------------------------------------------------
     // Errors
     // ------------------------------------------------------------------
@@ -114,6 +118,7 @@ contract ParityHook is BaseHook, Ownable, IParityLpRegistry {
         Currency premiumCurrency
     );
     event PremiumRouted(PoolId indexed poolId, Currency currency, uint256 amount);
+    event RouterAuthorizationSet(address indexed router, bool authorized);
 
     // ------------------------------------------------------------------
     // Construction
@@ -157,6 +162,12 @@ contract ParityHook is BaseHook, Ownable, IParityLpRegistry {
 
     function setFlaggedExtraGapBlocks(uint32 blocks_) external onlyOwner {
         flaggedExtraGapBlocks = blocks_;
+    }
+
+    /// @notice Grants or revokes a router's right to attest end-user identities in hookData.
+    function setRouterAuthorization(address router, bool authorized) external onlyOwner {
+        isAuthorizedRouter[router] = authorized;
+        emit RouterAuthorizationSet(router, authorized);
     }
 
     // ------------------------------------------------------------------
@@ -368,13 +379,21 @@ contract ParityHook is BaseHook, Ownable, IParityLpRegistry {
     // Internals
     // ------------------------------------------------------------------
 
-    /// @notice Resolves the economic actor for a swap/liquidity event. Routers are msg.sender
-    ///         into the PoolManager, so integrators pass the end-user address in hookData
-    ///         (first ABI-encoded word). Direct interactions fall back to the sender.
-    function _resolveSwapper(address sender, bytes calldata hookData) internal pure returns (address) {
+    /// @notice Resolves the economic actor for a swap/liquidity event.
+    /// @dev    Routers are msg.sender into the PoolManager, so integrations pass the end-user
+    ///         address in hookData (first ABI-encoded word). A claimed identity is honored
+    ///         ONLY when it is corroborated: either the transaction originates from the
+    ///         claimed EOA, or an explicitly authorized router attests on its behalf (the
+    ///         PositionManager passing its position owner). Without corroboration the claim
+    ///         is discarded — otherwise any caller could inherit a Trusted address's tier or
+    ///         dump signal penalties onto a victim's reputation. Uncorroborated flow falls
+    ///         back to the calling router contract itself, which accumulates its own score.
+    function _resolveSwapper(address sender, bytes calldata hookData) internal view returns (address) {
         if (hookData.length >= 32) {
             address claimed = abi.decode(hookData, (address));
-            if (claimed != address(0)) return claimed;
+            if (claimed != address(0) && (tx.origin == claimed || isAuthorizedRouter[sender])) {
+                return claimed;
+            }
         }
         return sender;
     }

@@ -53,7 +53,7 @@ contract EndToEndTest is ParityTest {
         assertEq(currency0.balanceOf(address(reserve)), premium, "premium escrowed");
 
         // 2) Same-block followup (the second sandwich leg) hits the delay window.
-        vm.startPrank(mallory);
+        vm.startPrank(mallory, mallory);
         vm.expectRevert();
         swapRouter.swapExactTokensForTokens(
             2e18, 0, true, poolKey, abi.encode(mallory), mallory, block.timestamp + 100

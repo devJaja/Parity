@@ -48,23 +48,41 @@ Otherwise the premium is donated straight back to in-range LPs and the outcome
 trains the threshold. Oracle downtime degrades safely: no reference ⇒
 auto-unverifiable ⇒ donated, never stuck.
 
+Pool prices are normalized across token decimal pairs
+(`humanPrice = rawPrice · 10^(dec0−dec1)`) so mixed-decimal pools (e.g.
+WETH/USDC-style 18/6 pairs) classify drift identically to 18/18 pools; the
+conversion stages the square-root square through `Math.mulDiv` so pools priced
+near `TickMath.MAX_SQRT_RATIO` cannot overflow.
+
+## Identity: corroborated, never blindly trusted
+
+Routers pass the end-user address in `hookData`. Parity honors a claimed
+identity only when it is **corroborated**: the transaction originates from the
+claimed EOA (`tx.origin == claimed`), or an explicitly authorized router
+attests on the user's behalf (governance-managed via
+`setRouterAuthorization`; deployment authorizes the canonical v4
+PositionManager so smart-wallet LP attribution works). Uncorroborated claims
+are discarded — flow resolves to the calling router contract, which accumulates
+its own reputation — so no one can inherit a Trusted tier or dump signal
+penalties onto a victim's score.
+
 ## Repository layout
 
 | Path | Purpose |
 | --- | --- |
-| `src/ParityHook.sol` | v4 hook: treatment matrix, delay gate, premium take, signal capture |
-| `src/LVRReserve.sol` | Premium escrow, N-block verification, payouts, donations, EWMA |
+| `src/ParityHook.sol` | v4 hook: treatment matrix, delay gate, premium take, signal capture, corroborated identity resolution |
+| `src/LVRReserve.sol` | Premium escrow, N-block verification with token-decimal normalization, payouts, donations, EWMA |
 | `src/ReputationLedger.sol` | Per-swapper score decay, tiers, last-swap-block tracking |
 | `src/libraries/SignalLib.sol` | Pure signal math (price impact, rapid-fire, size outliers) |
 | `src/ChainlinkPriceAdapter.sol` | Feed normalization + staleness guard |
 | `script/00_DeployParity.s.sol` | Full stack deployment incl. CREATE2-mined hook address |
-| `test/` | Foundry suite (54 tests): unit, integration, verification, end-to-end |
+| `test/` | Foundry suite (59 tests): unit, integration, verification, identity-spoofing, decimal-normalization, end-to-end |
 
 ## Quick start
 
 ```bash
 forge install        # already vendored in lib/
-forge test           # 54 tests across 6 suites
+forge test           # 59 tests across 7 suites
 
 # Local deployment against Anvil:
 anvil &
