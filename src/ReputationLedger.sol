@@ -65,6 +65,7 @@ contract ReputationLedger is Ownable {
 
     error Unauthorized();
     error InvalidScoreBounds();
+    error AlreadyScoredLocally();
 
     // ------------------------------------------------------------------
     // Events
@@ -157,6 +158,21 @@ contract ReputationLedger is Ownable {
         emit ReputationUpdated(swapper, score, _tierFor(score));
     }
 
+    /// @notice Seeds an address's score from the cross-pool AVS oracle. Only applies to
+    ///         addresses with NO local history — observed on-chain behavior always wins over
+    ///         imported reputation, so seeding can never launder or overwrite local signals.
+    /// @dev    Callable by the ParityHook only (it pulls the fresh oracle score and forwards
+    ///         it here), gated by the same history and score bounds as external seed paths.
+    function seedExternalScore(address swapper, int256 score) external {
+        if (msg.sender != authority) revert Unauthorized();
+        if (score < SCORE_MIN || score > SCORE_MAX) revert InvalidScoreBounds();
+        Account storage a = accounts[swapper];
+        if (a.lastActivityBlock != 0) revert AlreadyScoredLocally();
+        a.score = score;
+        a.lastActivityBlock = uint64(block.number);
+        emit ReputationUpdated(swapper, score, _tierFor(score));
+    }
+
     // ------------------------------------------------------------------
     // Reads (lazy decay applied)
     // ------------------------------------------------------------------
@@ -174,6 +190,11 @@ contract ReputationLedger is Ownable {
     /// @notice Block number of the address's last observed swap (0 = never).
     function lastSwapBlock(address swapper) external view returns (uint64) {
         return accounts[swapper].lastSwapBlock;
+    }
+
+    /// @notice True once the address has any locally observed history (swap or seed).
+    function hasHistory(address swapper) public view returns (bool) {
+        return accounts[swapper].lastActivityBlock != 0;
     }
 
     /// @notice Direction of the address's last observed swap.

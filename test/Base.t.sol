@@ -86,7 +86,7 @@ abstract contract ParityTest is BaseTest {
         hook = ParityHook(_parityFlags());
         ledger = hook.ledger();
 
-        reserve.setHook(address(hook));
+        reserve.setHook(hook);
 
         // Mirror production deployment: the canonical PositionManager attests position
         // owners through hookData so LP attribution survives the identity corroboration.

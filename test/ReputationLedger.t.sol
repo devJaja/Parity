@@ -18,6 +18,10 @@ contract LedgerHarness is ReputationLedger {
     ) external returns (int256, Tier) {
         return this.applySwapSignals(swapper, current, hadPriorOwn, priorOwn, priorPool);
     }
+
+    function reversalWindow() external view returns (uint32) {
+        return config.signals.reversalWindowBlocks;
+    }
 }
 
 /// @notice Decay, clamping, tier boundaries and access control on the ledger itself,
@@ -96,6 +100,31 @@ contract ReputationLedgerTest is ParityTest {
         // lazy decay of +1 (one block of the +6 drift), then: bonus +6, rapid-fire -18, reversal -35
         // → 506 - 1 + 6 - 18 - 35 = 458
         assertEq(harness.scoreOf(address(0x42)), 458);
+        vm.stopPrank();
+    }
+
+    function test_reversal_penalty_at_window_boundary() public {
+        uint64 gap = uint64(harness.reversalWindow());
+        vm.startPrank(authority);
+        harness.applySwapSignals(address(0x42), _obs(address(0x42), true, 10, 5), false, _obs(address(0), true, 0, 0), _obs(address(0), true, 0, 0));
+        vm.roll(5 + gap);
+        harness.applySwapSignals(address(0x42), _obs(address(0x42), false, 10, 5 + gap), true, _obs(address(0x42), true, 10, 5), _obs(address(0x42), true, 10, 5));
+        // exactly at the window edge the flip is still penalized:
+        // decayed 506-gap, +bonus, -reversal (rapid-fire window already elapsed)
+        int256 decayed = 506 - int256(uint256(gap));
+        assertEq(harness.scoreOf(address(0x42)), decayed + 6 - 35);
+        vm.stopPrank();
+    }
+
+    function test_reversal_penalty_elapsed_after_window() public {
+        uint64 gap = uint64(harness.reversalWindow()) + 1;
+        vm.startPrank(authority);
+        harness.applySwapSignals(address(0x42), _obs(address(0x42), true, 10, 5), false, _obs(address(0), true, 0, 0), _obs(address(0), true, 0, 0));
+        vm.roll(5 + gap);
+        harness.applySwapSignals(address(0x42), _obs(address(0x42), false, 10, 5 + gap), true, _obs(address(0x42), true, 10, 5), _obs(address(0x42), true, 10, 5));
+        // past the window the flip is benign: decayed 506-gap, +bonus only, no reversal penalty
+        int256 decayed = 506 - int256(uint256(gap));
+        assertEq(harness.scoreOf(address(0x42)), decayed + 6);
         vm.stopPrank();
     }
 

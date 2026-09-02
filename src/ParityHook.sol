@@ -17,6 +17,7 @@ import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {ReputationLedger} from "./ReputationLedger.sol";
 import {SignalLib} from "./libraries/SignalLib.sol";
 import {LVRReserve} from "./LVRReserve.sol";
+import {ParityCrossPoolOracle} from "./eigenlayer/ParityCrossPoolOracle.sol";
 import {IParityLpRegistry} from "./interfaces/IParityLpRegistry.sol";
 
 /// @title ParityHook
@@ -98,12 +99,16 @@ contract ParityHook is BaseHook, Ownable, IParityLpRegistry {
     ///         PositionManager passing its position owner). Governance-managed.
     mapping(address => bool) public isAuthorizedRouter;
 
+    /// @notice EigenLayer AVS consumer seeding cross-pool reputation for fresh addresses.
+    ParityCrossPoolOracle public crossPoolOracle;
+
     // ------------------------------------------------------------------
     // Errors
     // ------------------------------------------------------------------
 
     error DelayWindowActive(address swapper, uint64 eligibleAtBlock);
     error InvalidTier();
+    error PayoutsActive();
 
     // ------------------------------------------------------------------
     // Events
@@ -118,7 +123,10 @@ contract ParityHook is BaseHook, Ownable, IParityLpRegistry {
         Currency premiumCurrency
     );
     event PremiumRouted(PoolId indexed poolId, Currency currency, uint256 amount);
+    event PremiumOverflowSkipped(PoolId indexed poolId, Currency currency, uint256 premium);
     event RouterAuthorizationSet(address indexed router, bool authorized);
+    event CrossPoolOracleSet(address indexed oracle);
+    event LPsPruned(PoolId indexed poolId, uint256 pruned);
 
     // ------------------------------------------------------------------
     // Construction
@@ -170,6 +178,12 @@ contract ParityHook is BaseHook, Ownable, IParityLpRegistry {
         emit RouterAuthorizationSet(router, authorized);
     }
 
+    /// @notice Wires the EigenLayer cross-pool reputation oracle. Pass address(0) to disable.
+    function setCrossPoolOracle(ParityCrossPoolOracle oracle) external onlyOwner {
+        crossPoolOracle = oracle;
+        emit CrossPoolOracleSet(address(oracle));
+    }
+
     // ------------------------------------------------------------------
     // Swap hooks
     // ------------------------------------------------------------------
@@ -181,6 +195,15 @@ contract ParityHook is BaseHook, Ownable, IParityLpRegistry {
     {
         PoolId poolId = key.toId();
         address swapper = _resolveSwapper(sender, hookData);
+
+        // Cross-pool reputation seeding (EigenLayer AVS consumer): an address with no local
+        // history inherits its quorum-attested cross-pool score once; from then on locally
+        // observed signals fully take over.
+        if (address(crossPoolOracle) != address(0) && !ledger.hasHistory(swapper)) {
+            (bool fresh, int256 seeded) = crossPoolOracle.freshScore(swapper);
+            if (fresh) ledger.seedExternalScore(swapper, seeded);
+        }
+
         ReputationLedger.Tier tier = ledger.tierOf(swapper);
 
         // ---- Treatment: ordering delay -------------------------------------
@@ -262,7 +285,12 @@ contract ParityHook is BaseHook, Ownable, IParityLpRegistry {
         bool exactInput = params.amountSpecified < 0;
         if (pre.tier == ReputationLedger.Tier.Flagged && !exactInput && flaggedPremiumBps > 0) {
             uint256 premium = (amountIn * flaggedPremiumBps) / 10_000;
-            if (premium > 0 && premium <= uint256(uint128(type(int128).max))) {
+            if (premium > uint256(uint128(type(int128).max))) {
+                // A premium larger than int128.max cannot be expressed in the hook's
+                // afterSwap return delta. Never block the trade over fees: emit so the
+                // shortfall is visible to operators instead of failing silently.
+                emit PremiumOverflowSkipped(poolId, pre.premiumCurrency, premium);
+            } else if (premium > 0) {
                 pre.premiumTaken = premium;
                 unspecifiedReturn = premium.toInt128();
                 _takeToReserve(pre.premiumCurrency, premium);
@@ -373,6 +401,37 @@ contract ParityHook is BaseHook, Ownable, IParityLpRegistry {
 
     function lpAt(PoolId poolId, uint256 index) external view returns (address) {
         return lpOwners_[poolId][index];
+    }
+
+    /// @notice Permissionless garbage collection of the LP registry. LPs whose net position
+    ///         has fully withdrawn (net liquidity == 0) are removed from the enumeration array
+    ///         so payout scans and `lpCount` do not grow unboundedly. Swap-and-pop keeps the
+    ///         array compact without O(n) shifts.
+    /// @dev    Guarded against concurrent distribution: pruning is refused while any verified
+    ///         payout for this pool is unfinished, because `distributeVerified` resumes at a
+    ///         cursor indexing this array and reordering it mid-payout would skip or double-pay.
+    /// @return pruned Number of exited LPs removed.
+    function pruneExitedLPs(PoolId poolId, uint256 maxPrune) external returns (uint256 pruned) {
+        if (reserve.activePayouts(poolId) != 0) revert PayoutsActive();
+        address[] storage owners = lpOwners_[poolId];
+        uint256 i;
+        while (i < owners.length && pruned < maxPrune) {
+            address lp = owners[i];
+            if (lpNet_[poolId][lp] == 0) {
+                owners[i] = owners[owners.length - 1];
+                owners.pop();
+                delete lpNet_[poolId][lp];
+                delete lpLastChangeBlock_[poolId][lp];
+                unchecked {
+                    ++pruned;
+                }
+            } else {
+                unchecked {
+                    ++i;
+                }
+            }
+        }
+        emit LPsPruned(poolId, pruned);
     }
 
     // ------------------------------------------------------------------

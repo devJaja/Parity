@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -71,7 +72,7 @@ contract LVRReserve is Ownable, IUnlockCallback {
 
     IPoolManager public immutable poolManager;
     ChainlinkPriceAdapter public immutable priceAdapter;
-    address public hook; // IParityLpRegistry — set once after deployment
+    IParityLpRegistry public hook; // set once after deployment
 
     VerifyConfig public config;
 
@@ -86,6 +87,17 @@ contract LVRReserve is Ownable, IUnlockCallback {
     mapping(PoolId => uint256) public totalVerifiedPaid;
     mapping(PoolId => uint256) public totalUnverifiedDonated;
 
+    /// @notice Premium funds currently escrowed per currency (pending verification or
+    ///         queued payout). The CCTP bridge may only move balances ABOVE this watermark.
+    mapping(Currency currency => uint256 amount) public escrowedBalance;
+
+    /// @notice Verified payouts currently mid-distribution per pool. Non-zero means the hook
+    ///         must not prune its LP registry for this pool, since payout cursors index it.
+    mapping(PoolId => uint256) public activePayouts;
+
+    /// @notice Circle CCTP rebalance module authorized to withdraw idle funds.
+    address public bridge;
+
     // ------------------------------------------------------------------
     // Errors
     // ------------------------------------------------------------------
@@ -96,6 +108,8 @@ contract LVRReserve is Ownable, IUnlockCallback {
     error AlreadySettled();
     error UnknownPayout();
     error PayoutComplete();
+    error InsufficientIdle();
+    error NativeTransferFailed();
 
     // ------------------------------------------------------------------
     // Events
@@ -117,6 +131,7 @@ contract LVRReserve is Ownable, IUnlockCallback {
         uint256 indexed payoutIndex, PoolId indexed poolId, address indexed lp, Currency currency, uint256 amount
     );
     event PayoutResidualRolledToLpFees(uint256 indexed payoutIndex, uint256 amount);
+    event BridgeSet(address indexed bridge);
 
     // ------------------------------------------------------------------
     // Constructor / admin
@@ -132,8 +147,8 @@ contract LVRReserve is Ownable, IUnlockCallback {
 
     /// @notice Wires the registry after both contracts are deployed (breaks the deploy-time
     ///         dependency cycle between hook and reserve). Callable exactly once.
-    function setHook(address _hook) external onlyOwner {
-        if (hook != address(0)) revert HookAlreadySet();
+    function setHook(IParityLpRegistry _hook) external onlyOwner {
+        if (address(hook) != address(0)) revert HookAlreadySet();
         hook = _hook;
     }
 
@@ -141,6 +156,33 @@ contract LVRReserve is Ownable, IUnlockCallback {
         require(_config.ewmaDen > 0 && _config.ewmaNum <= _config.ewmaDen, "bad ewma");
         require(_config.minNoiseBps <= _config.maxNoiseBps, "bad thresholds");
         config = _config;
+    }
+
+    /// @notice Wires the Circle CCTP rebalance module (`CctpBridge`). Only it may move idle
+    ///         funds out of the reserve, and never below the escrowed-premium watermark.
+    function setBridge(address _bridge) external onlyOwner {
+        bridge = _bridge;
+        emit BridgeSet(_bridge);
+    }
+
+    /// @dev Moves unlocked idle `currency` to the CCTP bridge. Callable by the bridge only;
+    ///      escrowed premiums (pending verification or queued payouts) are untouchable.
+    ///      Native ETH is sent via a low-level call; ERC20 via `CurrencyLibrary.transfer`.
+    function transferIdleToBridge(Currency currency, uint256 amount) external {
+        if (address(bridge) == address(0) || msg.sender != bridge) revert Unauthorized();
+        if (amount > _currencyBalance(currency) - escrowedBalance[currency]) revert InsufficientIdle();
+        if (currency.isAddressZero()) {
+            (bool ok,) = bridge.call{value: amount}("");
+            if (!ok) revert NativeTransferFailed();
+        } else {
+            currency.transfer(address(bridge), amount);
+        }
+    }
+
+    /// @dev Total balance the reserve currently holds of `currency` (native or ERC20).
+    function _currencyBalance(Currency currency) internal view returns (uint256) {
+        address token = Currency.unwrap(currency);
+        return token == address(0) ? address(this).balance : IERC20(token).balanceOf(address(this));
     }
 
     // ------------------------------------------------------------------
@@ -156,7 +198,7 @@ contract LVRReserve is Ownable, IUnlockCallback {
         bool zeroForOne,
         uint128 liquidityAtBlock
     ) external returns (uint256 pendingIndex) {
-        if (msg.sender != hook) revert Unauthorized();
+        if (msg.sender != address(hook)) revert Unauthorized();
         if (amount == 0) return type(uint256).max; // nothing escrowed; caller skips booking
 
         // Snapshot the independent reference now. Oracle failure degrades gracefully:
@@ -187,6 +229,7 @@ contract LVRReserve is Ownable, IUnlockCallback {
             })
         );
         pendingIndex = pendings.length - 1;
+        escrowedBalance[currency] += amount;
         emit PremiumRecorded(pendingIndex, key.toId(), currency, amount);
     }
 
@@ -243,6 +286,7 @@ contract LVRReserve is Ownable, IUnlockCallback {
                     complete: false
                 })
             );
+            activePayouts[poolId] += 1;
             emit VerifiedPayoutQueued(pendingIndex, payouts.length - 1, p.amount);
         } else {
             // Natural volatility trains the adaptive threshold; confirmed toxicity does not.
@@ -251,6 +295,7 @@ contract LVRReserve is Ownable, IUnlockCallback {
             noiseEwmaBps[poolId] =
                 (prev * (c.ewmaDen - c.ewmaNum) + outcome.observedBps * c.ewmaNum) / c.ewmaDen;
             emit UnverifiedRolledToLpFees(pendingIndex, poolId, p.amount);
+            escrowedBalance[p.currency] -= p.amount;
             _donateToPool(poolId, p.key, p.currency, p.amount);
         }
 
@@ -282,7 +327,7 @@ contract LVRReserve is Ownable, IUnlockCallback {
         if (payout.complete) revert PayoutComplete();
 
         PoolId poolId = payout.key.toId();
-        IParityLpRegistry registry = IParityLpRegistry(hook);
+        IParityLpRegistry registry = hook;
         uint256 lpCount = registry.lpCount(poolId);
         uint256 processed = 0;
 
@@ -302,10 +347,14 @@ contract LVRReserve is Ownable, IUnlockCallback {
         if (complete && remaining > 0) {
             // Residual dust (rounding or ineligible LPs) rolls into general LP fee revenue.
             payout.distributed += remaining;
+            escrowedBalance[payout.currency] -= remaining;
             emit PayoutResidualRolledToLpFees(payoutIndex, remaining);
             _donateToPool(poolId, payout.key, payout.currency, remaining);
         }
-        if (complete) payout.complete = true;
+        if (complete) {
+            payout.complete = true;
+            activePayouts[poolId] -= 1;
+        }
     }
 
     /// @dev Pays a single LP if eligible. Returns the amount paid and whether distribution
@@ -335,6 +384,7 @@ contract LVRReserve is Ownable, IUnlockCallback {
         // receiving contract reentering `distributeVerified` observes updated state and
         // can never draw against the same premium twice.
         payout.distributed += share;
+        escrowedBalance[payout.currency] -= share;
         totalVerifiedPaid[poolId] += share;
         payout.currency.transfer(lp, share);
         emit CompensationPaid(payoutIndex, poolId, lp, payout.currency, share);
@@ -416,6 +466,7 @@ contract LVRReserve is Ownable, IUnlockCallback {
         // untouched. The premium still rolls into general LP fee revenue.
         emit LvrVerificationResult(pendingIndex, poolId, false, 0, 0, 0, 0);
         emit UnverifiedRolledToLpFees(pendingIndex, poolId, p.amount);
+        escrowedBalance[p.currency] -= p.amount;
         _donateToPool(poolId, p.key, p.currency, p.amount);
         delete pendings[pendingIndex];
     }

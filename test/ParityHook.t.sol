@@ -243,4 +243,69 @@ contract ParityHookTest is ParityTest {
         vm.stopPrank();
         assertApproxEqRel(hook.lpNet(poolId, lp2), netBefore / 2, 0.01e18);
     }
+
+    // ------------------------------------------------------------------
+    // LP registry garbage collection
+    // ------------------------------------------------------------------
+
+    function test_prune_exited_lps_removes_zero_net_from_registry() public {
+        address lp2 = makeAddr("exiting-lp");
+        MockERC20(Currency.unwrap(currency0)).mint(lp2, 1000e18);
+        MockERC20(Currency.unwrap(currency1)).mint(lp2, 1000e18);
+        vm.startPrank(lp2);
+        MockERC20(Currency.unwrap(currency0)).approve(address(permit2), type(uint256).max);
+        MockERC20(Currency.unwrap(currency1)).approve(address(permit2), type(uint256).max);
+        permit2.approve(Currency.unwrap(currency0), address(positionManager), type(uint160).max, type(uint48).max);
+        permit2.approve(Currency.unwrap(currency1), address(positionManager), type(uint160).max, type(uint48).max);
+        vm.stopPrank();
+
+        vm.startPrank(lp2, lp2);
+        (uint256 tokenId,) = positionManager.mint(
+            poolKey, -60, 60, 1e18, type(uint256).max, type(uint256).max, lp2, block.timestamp, abi.encode(lp2)
+        );
+        vm.stopPrank();
+        assertEq(hook.lpCount(poolId), 2);
+
+        // Fully withdraw: net liquidity returns to exactly zero but the registry keeps it.
+        uint256 fullNet = hook.lpNet(poolId, lp2);
+        vm.startPrank(lp2, lp2);
+        positionManager.decreaseLiquidity(tokenId, fullNet, 0, 0, lp2, block.timestamp, abi.encode(lp2));
+        vm.stopPrank();
+        assertEq(hook.lpNet(poolId, lp2), 0);
+        assertEq(hook.lpCount(poolId), 2, "array must still enumerate the exited LP before pruning");
+
+        // Permissionless prune compacts the array.
+        vm.prank(makeAddr("keeper"));
+        hook.pruneExitedLPs(poolId, 10);
+        assertEq(hook.lpCount(poolId), 1);
+        assertEq(hook.lpAt(poolId, 0), address(this));
+        assertEq(hook.lpNet(poolId, lp2), 0, "mapping entries cleared");
+    }
+
+    function test_prune_refused_while_payout_active() public {
+        // Queue a verified payout so the reserve marks the pool as having an active payout.
+        address mallory = _makeSwapper(9);
+        ledger.forceSetScore(mallory, 100); // Flagged
+        _swap(mallory, true, 25e18);
+
+        vm.roll(block.number + _verifyBlocksConfig());
+        assertTrue(reserve.settlePending(0), "toxic dump must verify and queue a payout");
+        assertEq(reserve.activePayouts(poolId), 1);
+
+        // Leave the payout unfinished (maxBatch 0 processes nothing) so it stays active.
+        reserve.distributeVerified(0, 0);
+        assertEq(reserve.activePayouts(poolId), 1, "payout remains active");
+
+        vm.expectRevert(ParityHook.PayoutsActive.selector);
+        hook.pruneExitedLPs(poolId, 1);
+
+        // Completing the payout releases the guard.
+        reserve.distributeVerified(0, 10);
+        assertEq(reserve.activePayouts(poolId), 0);
+        hook.pruneExitedLPs(poolId, 1);
+    }
+
+    function _verifyBlocksConfig() internal view returns (uint32 v) {
+        (v,,,,) = reserve.config();
+    }
 }

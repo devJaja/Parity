@@ -2,11 +2,10 @@
 cache/
 out/
 
-# Ignores development (and goerli) broadcast logs
-!/broadcast
-/broadcast/*/31337/
-/broadcast/*/5/
-/broadcast/**/dry-run/
+# Broadcast / deployment artifacts are ignored by default — Foundry writes the deployer
+# private key into run-latest.json (and cache/), so these must never be committed.
+# Only the repository's own checked-in broadcast files are kept.
+/broadcast/
 
 # Docs
 docs/
@@ -16,3 +15,5 @@ docs/
 
 # Node modules
 node_modules/
+# EigenLayer middleware (reference only; consumer uses ABI-faithful local interface)
+/lib/eigenlayer-middleware/

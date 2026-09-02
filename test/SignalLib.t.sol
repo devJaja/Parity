@@ -107,20 +107,6 @@ contract SignalLibTest is Test {
     }
 
     // ------------------------------------------------------------------
-    // Signal 4 — reversal
-    // ------------------------------------------------------------------
-
-    function test_reversal_penalized_flip() public view {
-        assertEq(SignalLib.reversalAdjustment(true, true, false, c), c.reversalPenalty);
-        assertEq(SignalLib.reversalAdjustment(true, false, true, c), c.reversalPenalty);
-    }
-
-    function test_reversal_zero_same_direction_or_no_prior() public view {
-        assertEq(SignalLib.reversalAdjustment(false, true, false, c), 0, "no prior observation");
-        assertEq(SignalLib.reversalAdjustment(true, true, true, c), 0, "same direction");
-    }
-
-    // ------------------------------------------------------------------
     // Helper — impact math
     // ------------------------------------------------------------------
 

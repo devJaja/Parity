@@ -25,13 +25,20 @@ import {MockAggregator} from "../test/mocks/MockAggregator.sol";
 import {AggregatorV3Interface, ChainlinkPriceAdapter} from "../src/ChainlinkPriceAdapter.sol";
 import {ParityHook} from "../src/ParityHook.sol";
 import {LVRReserve} from "../src/LVRReserve.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IECDSAStakeRegistry} from "../src/eigenlayer/IECDSAStakeRegistry.sol";
+import {ParityCrossPoolOracle} from "../src/eigenlayer/ParityCrossPoolOracle.sol";
+import {CctpBridge, ITokenMessengerV2} from "../src/circle/CctpBridge.sol";
+import {MockStakeRegistry} from "../test/mocks/MockStakeRegistry.sol";
+import {MockTokenMessenger} from "../test/mocks/MockCctp.sol";
 
 /// @notice Deploys the full Parity stack:
 ///         ChainlinkPriceAdapter -> LVRReserve -> ParityHook (CREATE2-mined address),
 ///         then optionally initializes a demo pool and seeds a full-range LP.
 ///
 /// Environment variables:
-///   PARITY_POOL_MANAGER   canonical IPoolManager   (required off-Anvil)
+///   PARITY_POOL_MANAGER   IPoolManager to target   (required off-Anvil; Permit2,
+///                           PositionManager and swap router resolve canonically)
 ///   PARITY_FEED           Chainlink AggregatorV3   (required off-Anvil)
 ///   PARITY_STALENESS      max oracle staleness s   (default 3600)
 ///   PARITY_NO_SEED        set to 1 to skip demo-pool LP seeding
@@ -39,7 +46,22 @@ contract DeployParity is Script, Deployers {
     /// @dev Arachnid's Deterministic Deployment Proxy (forge's default CREATE2 route).
     address internal constant PROXY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
-    function run() external {
+    // Deployed stack, exposed for downstream scripts (live demos, smoke tests).
+    ChainlinkPriceAdapter internal adapter;
+    LVRReserve internal reserve;
+    ParityHook internal hook;
+
+    // Partner modules (canonical addresses off-Anvil; local stand-ins on Anvil).
+    IERC20Metadata internal usdc;
+    CctpBridge internal cctpBridge;
+    MockStakeRegistry internal stakeRegistry;
+    ParityCrossPoolOracle internal crossPoolOracle;
+
+    function run() external virtual {
+        _deployStack();
+    }
+
+    function _deployStack() internal {
         uint256 deployerKey = vm.envOr("PRIVATE_KEY", uint256(0));
         if (deployerKey != 0) vm.startBroadcast(deployerKey);
         else vm.startBroadcast();
@@ -47,21 +69,29 @@ contract DeployParity is Script, Deployers {
         bool isAnvil = block.chainid == 31_337;
 
         if (vm.envOr("PARITY_POOL_MANAGER", address(0)) != address(0)) {
-            require(vm.envAddress("PARITY_POOL_MANAGER").code.length > 0, "invalid PARITY_POOL_MANAGER");
+            poolManager = IPoolManager(vm.envAddress("PARITY_POOL_MANAGER"));
+            require(address(poolManager).code.length > 0, "invalid PARITY_POOL_MANAGER");
         } else {
             require(isAnvil, "PARITY_POOL_MANAGER required on production chains");
-            deployArtifacts(); // Permit2 + PoolManager + PositionManager + Router
+            deployPoolManager();
         }
 
-        ChainlinkPriceAdapter adapter = _deployAdapter(isAnvil);
-        LVRReserve reserve = new LVRReserve(poolManager, adapter, msg.sender);
-        ParityHook hook = _deployMinedHook(reserve, isAnvil);
-        reserve.setHook(address(hook));
+        // Permit2, PositionManager and the swap router resolve to the canonical
+        // deployments on non-Anvil chains (and local stand-ins on Anvil).
+        deployPermit2();
+        deployPositionManager();
+        deployRouter();
+
+        adapter = _deployAdapter(isAnvil);
+        reserve = new LVRReserve(poolManager, adapter, msg.sender);
+        hook = _deployMinedHook(reserve, isAnvil);
+        reserve.setHook(hook);
 
         // The PositionManager attests position owners through hookData so LP attribution
         // also works for smart wallets, whose tx.origin differs from the owner address.
         hook.setRouterAuthorization(address(positionManager), true);
 
+        _deployPartnerModules(hook, reserve);
         _log(adapter, reserve, hook);
 
         if (!vm.envOr("PARITY_NO_SEED", false) && address(positionManager) != address(0)) {
@@ -71,6 +101,50 @@ contract DeployParity is Script, Deployers {
         }
 
         vm.stopBroadcast();
+    }
+
+    /// @dev Optional partner integrations, enabled per-chain by environment variables:
+    ///   PARITY_STAKE_REGISTRY   ECDSAStakeRegistry proxy of the Parity AVS on this chain.
+    ///                           Deploys the cross-pool oracle consumer and wires it into
+    ///                           the hook, which forwards fresh scores to the ledger.
+    ///                           On Anvil a local MockStakeRegistry stand-in is deployed.
+    ///   PARITY_USDC             Native USDC on this chain (Anvil: local 6-decimals mock).
+    ///   PARITY_TOKEN_MESSENGER  Canonical Circle CCTP TokenMessenger on this chain
+    ///                           (Anvil: local MockTokenMessenger). Deploys the reserve
+    ///                           rebalance bridge, authorizes it on the reserve, and opens
+    ///                           destination domain 6 (Base) for demo flows.
+    function _deployPartnerModules(ParityHook hook_, LVRReserve reserve_) internal {
+        bool isAnvil = block.chainid == 31_337;
+        address deployer = msg.sender;
+
+        // ---- Circle CCTP -------------------------------------------------
+        usdc = IERC20Metadata(vm.envOr("PARITY_USDC", address(0)));
+        ITokenMessengerV2 messenger = ITokenMessengerV2(vm.envOr("PARITY_TOKEN_MESSENGER", address(0)));
+        if (isAnvil && address(usdc) == address(0)) {
+            usdc = IERC20Metadata(address(new MockERC20("USD Coin", "USDC", 6)));
+            messenger = ITokenMessengerV2(address(new MockTokenMessenger()));
+        }
+        if (address(usdc) != address(0) && address(messenger) != address(0)) {
+            cctpBridge = new CctpBridge(usdc, reserve_, messenger, deployer);
+            reserve_.setBridge(address(cctpBridge));
+            if (isAnvil) cctpBridge.setDestinationDomain(6, true);
+            console2.log("  USDC:          ", address(usdc));
+            console2.log("  CctpBridge:    ", address(cctpBridge));
+        }
+
+        // ---- EigenLayer AVS consumer ------------------------------------
+        address registryAddr = vm.envOr("PARITY_STAKE_REGISTRY", address(0));
+        if (isAnvil && registryAddr == address(0)) {
+            stakeRegistry = new MockStakeRegistry();
+            registryAddr = address(stakeRegistry);
+            console2.log("  StakeRegistry: ", registryAddr);
+        }
+        if (registryAddr != address(0)) {
+            crossPoolOracle =
+                new ParityCrossPoolOracle(IECDSAStakeRegistry(registryAddr), vm.envOr("PARITY_FRESHNESS", uint256(50)), deployer);
+            hook_.setCrossPoolOracle(crossPoolOracle);
+            console2.log("  CrossPoolOracle:", address(crossPoolOracle));
+        }
     }
 
     function _deployAdapter(bool isAnvil) internal returns (ChainlinkPriceAdapter) {
@@ -120,7 +194,7 @@ contract DeployParity is Script, Deployers {
     /// @dev Template artifacts are etched at canonical addresses; only possible on Anvil.
     function _etch(address target, bytes memory bytecode) internal override {
         require(block.chainid == 31_337, "etch unsupported on this network");
-        vm.rpc("anvil_setCode", string.concat('["', vm.toString(target), '",', '"', vm.toString(bytecode), '"]'));
+        vm.etch(target, bytecode);
     }
 
     /// @dev Hook permissions required by Parity, encoded as address flags.

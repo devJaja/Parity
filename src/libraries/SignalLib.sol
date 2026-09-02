@@ -121,24 +121,6 @@ library SignalLib {
     }
 
     // ------------------------------------------------------------------
-    // Signal 4 — Net position reversal
-    // ------------------------------------------------------------------
-
-    /// @notice Penalty for reversing direction within `reversalWindowBlocks` of one's own prior
-    ///         swap — opening and closing in a short window indicates extractive intent.
-    /// @return adjustment Zero when there is no prior own-swap or the direction did not flip.
-    /// @param hadPriorSwap False when this is the address's first observed swap on this pool.
-    function reversalAdjustment(bool hadPriorSwap, bool previousZeroForOne, bool currentZeroForOne, SignalConfig memory c)
-        internal
-        pure
-        returns (int16 adjustment)
-    {
-        if (!hadPriorSwap) return 0;
-        if (previousZeroForOne != currentZeroForOne) return c.reversalPenalty;
-        return 0;
-    }
-
-    // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
