@@ -217,6 +217,37 @@ oracle's digest/encoding are byte-for-byte identical, then drives a full
 `attestReputation → quorum verify → seed` round through the faithful double.
 Run fork-independent with `forge test --match-path test/EigenLayerLiveFork.t.sol`.
 
+#### EigenLayer evidence (verifiable artifacts)
+
+On-chain (Base Sepolia, 84532 — all live, tx status `0x1` success):
+
+| Artifact | Value |
+| --- | --- |
+| `ParityCrossPoolOracle` | `0xf69cb6937452B8A2110528895d4eCb72bB07283C` |
+| Deployment tx | `0x7b499ffababf3849577a618eb8b02c39037382611c81102ed6da7d5528a31c22` (block `0x2c2e41a`) |
+| Owner | `0x664C1791ad9189ebAEB63716d29EeCaA405c732D` |
+| `freshnessBlocks` | `50` |
+
+ABI compatibility with the **audited** EigenLayer `ECDSAStakeRegistry`
+(asserted by `test/EigenLayerLiveFork.t.sol`, all pass):
+
+| Selector / layout | Value |
+| --- | --- |
+| `isValidSignature(bytes32,bytes)` | `0x1626ba7e` (ERC-1271 valid) |
+| `getLastCheckpointTotalWeight()` | `0x314f3a49` |
+| signatureData encoding | `(address[], bytes[], uint32)` |
+
+Re-run the proof anytime: `forge test --match-path test/EigenLayerLiveFork.t.sol`
+(fork-independent; suite: 79 passed / 0 failed / 3 skipped).
+
+> **Honest scope.** This proves the AVS-*consumer* integration end-to-end:
+> the oracle verifies quorum signatures using the real audited registry ABI and
+> the exact encoding EigenLayer consumes. A *functional staked operator quorum*
+> is operator-network infrastructure that cannot run on Base Sepolia (EigenLayer
+> **destination-only** — no DelegationManager/operator staking there); the full
+> real-quorum proof belongs on an Ethereum testnet (Holesky), where EigenLayer
+> core is live.
+
 ### Not integrated (deliberate scope)
 
 - **Circle Wallets / Programmable Wallets** (off-chain API products): payout
