@@ -35,6 +35,7 @@ import {
 } from "../contracts";
 import { formatAddress, TIER_LABELS } from "../utils/format";
 import SwapCard from "../components/SwapCard";
+import SeedPoolPanel from "../components/SeedPoolPanel";
 
 export default function SwapDemo() {
   const { address, isConnected } = useAccount();
@@ -258,6 +259,10 @@ export default function SwapDemo() {
           <Text fontSize="sm">{result}</Text>
         </Alert>
       )}
+
+      <Box mb={8}>
+        <SeedPoolPanel />
+      </Box>
 
       <Box mb={8}>
         <SwapCard />

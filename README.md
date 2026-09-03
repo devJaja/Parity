@@ -79,13 +79,13 @@ penalties onto a victim's score.
 | `src/eigenlayer/ParityCrossPoolOracle.sol` | EigenLayer AVS consumer: quorum-verified cross-pool reputation attestations (ECDSAStakeRegistry `isValidSignature`), monotonic nonce replay protection |
 | `src/eigenlayer/IECDSAStakeRegistry.sol` | ABI-faithful consumer view of EigenLayer middleware's ECDSAStakeRegistry |
 | `script/00_DeployParity.s.sol` | Full stack deployment incl. CREATE2-mined hook address; optional partner modules via env vars |
-| `test/` | Foundry suite (86 unit/integration tests + 5 fork-only live proofs): unit, integration, verification, identity-spoofing, decimal-normalization, CCTP rebalancing, AVS seeding, LP pruning, end-to-end |
+| `test/` | Foundry suite (86 unit/integration tests + 6 fork-only live proofs): unit, integration, verification, identity-spoofing, decimal-normalization, CCTP rebalancing, AVS seeding, LP pruning, end-to-end |
 
 ## Quick start
 
 ```bash
 forge install        # already vendored in lib/
-forge test           # 86 tests across 16 suites (+5 fork-only live proofs, skipped without RPC)
+forge test           # 86 tests across 17 suites (+6 fork-only live proofs, skipped without RPC)
 
 # Local deployment against Anvil:
 anvil &
@@ -165,7 +165,7 @@ Adapter logic proven by `test/ChainlinkPriceAdapter.t.sol` (7 unit tests, all pa
   price as judge.
 
 Re-run: `forge test --match-path test/ChainlinkPriceAdapter.t.sol` (full suite:
-86 passed / 0 failed / 5 skipped — the skips are the fork-only live proofs).
+86 passed / 0 failed / 6 skipped — the skips are the fork-only live proofs).
 
 #### Live-hook MVP proof (verifiable artifacts)
 
@@ -222,6 +222,33 @@ the settlement semantics are the production ones (a confirmed one-sided drift cl
 *verified* and pays out the LP; an unverified one is donated to in-range LPs).
 
 Passing live (fork) and skipped without an RPC, like the other fork proofs.
+
+#### Live pool seed (`CanonicalPoolSeeder`) — real swaps, no revert
+
+`test/SeedPoolLiveFork.t.sol` proves the production seeding path so a real swap
+against the deployed hook **does not revert**. It deploys the deployer-owned
+`CanonicalPoolSeeder` (from `script/SeedParityPool.s.sol`), funds it with real
+canonical USDC + WETH, initializes the WETH/USDC pool at the live price, mints the
+concentrated LP via the canonical PositionManager, and then runs a real canonical
+swap that SUCCEEDS and pays out WETH:
+
+```bash
+forge test --match-path test/SeedPoolLiveFork.t.sol --fork-url $BASE_RPC
+```
+
+The same seed is reproducible on-chain by the hook owner (two scripts, no
+mock-token minting — the seeder must be funded with real USDC + WETH):
+
+```bash
+# 1) deploy the seeder
+forge script script/SeedParityPool.s.sol:DeploySeeder --rpc-url $BASE_RPC --private-key $PRIVATE_KEY --broadcast
+# 2) fund the logged CanonicalPoolSeeder with ~$33k USDC + 0.023 WETH, set
+#    PARITY_SEEDER=<seeder>, then:
+forge script script/SeedParityPool.s.sol:SeedPool --rpc-url $BASE_RPC --private-key $PRIVATE_KEY --broadcast
+```
+
+Once seeded, the frontend Swap Demo's canonical router swap works live (the hook
+owner can also seed via the owner-only **Seed Pool** panel in the UI).
 
 ## Partner technology integrations
 

@@ -25,6 +25,11 @@ export const USDC_ADDRESS: Address =
 export const WETH_ADDRESS: Address =
   "0x4200000000000000000000000000000000000006"; // 18-dec
 
+// Deployed by `script/SeedParityPool.s.sol:DeploySeeder`, then funded + seeded by the owner.
+// Fill after broadcasting DeploySeeder.
+export const PARITY_SEEDER_ADDRESS: Address =
+  "0x0000000000000000000000000000000000000000";
+
 // Canonical Parity WETH/USDC pool: currency0 (USDC) < currency1 (WETH).
 export const PARITY_POOL_FEE = 3000;
 export const PARITY_POOL_TICK_SPACING = 60;
@@ -338,4 +343,46 @@ export const ERC20_ABI = [
     outputs: [{ type: "uint8" }],
   },
 ] as const;
+
+// ---- CanonicalPoolSeeder (SeedParityPool.s.sol) ----
+export const POOL_SEEDER_ABI = [
+  {
+    type: "function",
+    name: "owner",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "address" }],
+  },
+  {
+    type: "function",
+    name: "seeded",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "seed",
+    stateMutability: "nonpayable",
+    inputs: [
+      { type: "int24", name: "tickLower" },
+      { type: "int24", name: "tickUpper" },
+      { type: "uint128", name: "liquidity" },
+      { type: "uint256", name: "amount0Max" },
+      { type: "uint256", name: "amount1Max" },
+    ],
+    outputs: [{ type: "bytes32", name: "poolId" }],
+  },
+  {
+    type: "function",
+    name: "pull",
+    stateMutability: "nonpayable",
+    inputs: [
+      { type: "uint256", name: "usdcAmount" },
+      { type: "uint256", name: "wethAmount" },
+    ],
+    outputs: [],
+  },
+] as const;
+
 

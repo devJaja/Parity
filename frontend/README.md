@@ -5,8 +5,10 @@ A **Chakra UI + wagmi (viem) + react-router** dashboard for the live Base Sepoli
 
 - **Dashboard** — live wiring, reserve state, and the connected wallet's
   reputation tier + score (with a tier-band gauge).
-- **Swap Demo** — the treatment Parity applies (delay / premium) plus the
-  permissionless `settlePending(0)` / `distributeVerified(0)` reserve calls.
+- **Swap Demo** — the treatment Parity applies (delay / premium), the
+  permissionless `settlePending(0)` / `distributeVerified(0)` reserve calls, a
+  canonical Uniswap v4 router swap (USDC → WETH against the real deployed hook),
+  and an owner-only **Seed Pool** panel to deploy/fund/seed the live pool.
 - **LVR Analysis** — the verification/EWMA decision explained, with live reserve
   parameters and the live ETH/USD Chainlink reference.
 
@@ -32,7 +34,7 @@ All in `src/contracts.ts` (live Base Sepolia deployment).
 
 - Read calls use `https://sepolia.base.org`; writes go through the connected
   wallet's signer via wagmi.
-- The live deploy currently has no seeded pool on-chain, so premium escrow is
-  demonstrated via fork proofs (`test/HookLiveFork.t.sol` / `test/PushLivePool.t.sol`); the
-  Swap Demo page states this honestly and surfaces pending records once a pool
-  is seeded.
+- The deployed hook has no seeded pool until the owner runs the Seed Pool flow
+  (`script/SeedParityPool.s.sol`, proven on fork by `test/SeedPoolLiveFork.t.sol`).
+  Until then, live swaps would revert, so the Swap card discloses this; once
+  seeded, premium escrow and settlement become live and visible in the UI.
