@@ -201,6 +201,22 @@ this repo — tests simulate quorum responses against a faithful registry double
 wiring: deploy with `PARITY_STAKE_REGISTRY` pointing at the AVS's
 ECDSAStakeRegistry proxy.
 
+**Live deployment (Base Sepolia, 84532):** `ParityCrossPoolOracle` deployed at
+`0xf69cb6937452B8A2110528895d4eCb72bB07283C` (owner `0x664C…c732D`,
+`freshnessBlocks = 50`), via `script/03_DeployEigenLayer.s.sol`.
+
+**ABI / live-fork wiring proof:** `test/EigenLayerLiveFork.t.sol` mirrors the
+`CircleFork` proof standard. Base Sepolia is EigenLayer *destination-only* and
+the full EigenLayer v1.9.0-rc.0 build (default solc 0.8.27 vs `^0.8.29` core,
+tangled nested libs) cannot compile into this 0.8.30 repo, so a functional
+staked quorum cannot run there; instead the test hardcodes the **audited**
+registry ABI — `isValidSignature(bytes32,bytes)` → `0x1626ba7e`,
+`getLastCheckpointTotalWeight()`, and the `(address[], bytes[], uint32)`
+signature-data layout — and asserts our `IECDSAStakeRegistry` interface and the
+oracle's digest/encoding are byte-for-byte identical, then drives a full
+`attestReputation → quorum verify → seed` round through the faithful double.
+Run fork-independent with `forge test --match-path test/EigenLayerLiveFork.t.sol`.
+
 ### Not integrated (deliberate scope)
 
 - **Circle Wallets / Programmable Wallets** (off-chain API products): payout
