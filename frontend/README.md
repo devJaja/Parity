@@ -15,12 +15,30 @@ A **Chakra UI + wagmi (viem) + react-router** dashboard for the live Base Sepoli
 ## Run
 
 ```bash
-npm install
-npm run dev        # http://localhost:5173
+npm install          # requires `npm approve-scripts esbuild` on first install
+npm run dev          # http://localhost:5173
 ```
 
-Connect a MetaMask/Rainbow wallet on **Base Sepolia (84532)** to see reputation
-and run settlement calls.
+To enable **WalletConnect** (mobile / any WalletConnect-compatible wallet), set a
+free projectId from https://cloud.walletconnect.com in a local `.env` (see
+`.env.example`):
+
+```bash
+VITE_WALLETCONNECT_PROJECT_ID=YOUR_PROJECT_ID
+```
+
+## Connecting a wallet
+
+Use the **Connect Wallet** button (top-right). It opens a wallet selector:
+
+- **Browser wallet** — the `injected` connector (MetaMask, Coinbase Wallet,
+  Rabby, Pelagus…). Your extension must be enabled and set as the **default
+  wallet** so it injects `window.ethereum`; if it isn't, the page can't see it.
+- **Coinbase Wallet / WalletConnect** — alternate paths that don't require an
+  injected extension.
+
+If no browser extension injects a provider, the app shows a clear hint. Connect
+a wallet on **Base Sepolia (84532)** to read reputation and run settlement calls.
 
 > The hook itself is fully on-chain and needs no frontend — this dashboard is a
 > presentation layer (and a judging aid) only. Swaps go through the standard
