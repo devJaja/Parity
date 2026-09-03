@@ -13,6 +13,22 @@ export const OWNER_ADDRESS: Address =
 export const CHAIN_ID = 84532;
 export const RPC_URL = "https://sepolia.base.org";
 
+// ---- Canonical Uniswap v4 + Circle addresses on Base Sepolia (84532) ----
+export const V4_POOL_MANAGER_ADDRESS: Address =
+  "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408";
+export const V4_SWAP_ROUTER_ADDRESS: Address =
+  "0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9";
+export const PERMIT2_ADDRESS: Address =
+  "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+export const USDC_ADDRESS: Address =
+  "0x036CbD53842c5426634e7929541eC2318f3dCF7e"; // 6-decimal FiatToken
+export const WETH_ADDRESS: Address =
+  "0x4200000000000000000000000000000000000006"; // 18-dec
+
+// Canonical Parity WETH/USDC pool: currency0 (USDC) < currency1 (WETH).
+export const PARITY_POOL_FEE = 3000;
+export const PARITY_POOL_TICK_SPACING = 60;
+
 export const PARITY_HOOK_ABI = [
   {
     type: "function",
@@ -239,3 +255,87 @@ export const AGGREGATOR_V3_ABI = [
     ],
   },
 ] as const;
+
+// ---- Canonical Uniswap v4 router (IUniswapV4Router04 single-pool) ----
+export const V4_SWAP_ROUTER_ABI = [
+  {
+    type: "function",
+    name: "swapExactTokensForTokens",
+    stateMutability: "payable",
+    inputs: [
+      { type: "uint256", name: "amountIn" },
+      { type: "uint256", name: "amountOutMin" },
+      { type: "bool", name: "zeroForOne" },
+      {
+        type: "tuple",
+        components: [
+          { type: "address", name: "currency0" },
+          { type: "address", name: "currency1" },
+          { type: "uint24", name: "fee" },
+          { type: "int24", name: "tickSpacing" },
+          { type: "address", name: "hooks" },
+        ],
+        name: "poolKey",
+      },
+      { type: "bytes", name: "hookData" },
+      { type: "address", name: "receiver" },
+      { type: "uint256", name: "deadline" },
+    ],
+    outputs: [{ type: "int128" }, { type: "int128" }],
+  },
+] as const;
+
+// ---- Permit2 AllowanceTransfer (approve + transferFrom) ----
+export const PERMIT2_ABI = [
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { type: "address", name: "token" },
+      { type: "address", name: "spender" },
+      { type: "uint160", name: "amount" },
+      { type: "uint48", name: "expiration" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+// ---- Generic ERC20 (approve, allowance, balanceOf) ----
+export const ERC20_ABI = [
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { type: "address", name: "spender" },
+      { type: "uint256", name: "amount" },
+    ],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { type: "address", name: "owner" },
+      { type: "address", name: "spender" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ type: "address", name: "account" }],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "decimals",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint8" }],
+  },
+] as const;
+

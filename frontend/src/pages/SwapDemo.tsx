@@ -19,7 +19,7 @@ import {
   StatNumber,
   StatHelpText,
   useToast,
-  Code,
+  Box,
 } from "@chakra-ui/react";
 import {
   useAccount,
@@ -34,6 +34,7 @@ import {
   REPUTATION_LEDGER_ABI,
 } from "../contracts";
 import { formatAddress, TIER_LABELS } from "../utils/format";
+import SwapCard from "../components/SwapCard";
 
 export default function SwapDemo() {
   const { address, isConnected } = useAccount();
@@ -187,7 +188,7 @@ export default function SwapDemo() {
                 <Text fontSize="sm" color="gray.500">
                   A neutral/flagged swapper can still trade, but not twice in the same block — so both
                   sandwich legs cannot be atomic. Flagged exact-input swaps also pay a{" "}
-                  <Code>{premiumBps?.toString() ?? "150"} bps</Code> premium that is escrowed for
+                  <strong>{premiumBps?.toString() ?? "150"} bps</strong> premium that is escrowed for
                   verification.
                 </Text>
               </VStack>
@@ -258,17 +259,9 @@ export default function SwapDemo() {
         </Alert>
       )}
 
-      <Card>
-        <CardBody>
-          <Text fontSize="sm" color="gray.500">
-            <strong>Honest note:</strong> swapping itself is not embeddable here live — trades go through
-            the standard Uniswap v4 router and are protected automatically. The live Base Sepolia deploy has
-            no seeded pool yet, so premium escrow is driven via fork proofs (<Code>HookLiveFork</Code> /{" "}
-            <Code>PushLivePool</Code>); once a pool is seeded on-chain, premium and settlement become visible
-            in the pending records above.
-          </Text>
-        </CardBody>
-      </Card>
+      <Box mb={8}>
+        <SwapCard />
+      </Box>
     </Container>
   );
 }
