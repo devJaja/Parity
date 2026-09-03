@@ -9,7 +9,7 @@ materializes — paid out to the liquidity providers who bore the risk.
 
 ```
 Swapper ──▶ ReputationLedger ──▶ ParityHook (v4 hook)
-                                    │  Trusted   → instant execution, base fee
+                                    │  Trusted   → instant execution, no fee
                                     │  Neutral   → ordering delay only
                                     │  Flagged   → ordering delay + 150 bps premium
                                     ▼
@@ -79,13 +79,13 @@ penalties onto a victim's score.
 | `src/eigenlayer/ParityCrossPoolOracle.sol` | EigenLayer AVS consumer: quorum-verified cross-pool reputation attestations (ECDSAStakeRegistry `isValidSignature`), monotonic nonce replay protection |
 | `src/eigenlayer/IECDSAStakeRegistry.sol` | ABI-faithful consumer view of EigenLayer middleware's ECDSAStakeRegistry |
 | `script/00_DeployParity.s.sol` | Full stack deployment incl. CREATE2-mined hook address; optional partner modules via env vars |
-| `test/` | Foundry suite (75 unit/integration tests + 2 canonical-CCTP fork tests): unit, integration, verification, identity-spoofing, decimal-normalization, CCTP rebalancing, AVS seeding, LP pruning, end-to-end |
+| `test/` | Foundry suite (86 unit/integration tests + 4 fork-only live proofs): unit, integration, verification, identity-spoofing, decimal-normalization, CCTP rebalancing, AVS seeding, LP pruning, end-to-end |
 
 ## Quick start
 
 ```bash
 forge install        # already vendored in lib/
-forge test           # 75 tests across 11 suites (+2 canonical-CCTP fork tests skipped without RPC)
+forge test           # 86 tests across 15 suites (+4 fork-only live proofs, skipped without RPC)
 
 # Local deployment against Anvil:
 anvil &
@@ -302,7 +302,7 @@ ABI compatibility with the **audited** EigenLayer `ECDSAStakeRegistry`
 | signatureData encoding | `(address[], bytes[], uint32)` |
 
 Re-run the proof anytime: `forge test --match-path test/EigenLayerLiveFork.t.sol`
-(fork-independent; suite: 79 passed / 0 failed / 3 skipped).
+(fork-independent; suite: 86 passed / 0 failed / 4 skipped).
 
 > **Honest scope.** This proves the AVS-*consumer* integration end-to-end:
 > the oracle verifies quorum signatures using the real audited registry ABI and
