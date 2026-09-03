@@ -5,16 +5,33 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@chakra-ui/icons": "^2.2.4",
+    "@chakra-ui/react": "^2.10.4",
+    "@emotion/react": "^11.13.5",
+    "@emotion/styled": "^11.13.5",
+    "@tanstack/react-query": "^5.64.1",
+    "@wagmi/core": "^2.16.0",
+    "date-fns": "^4.1.0",
     "ethers": "^6.13.4",
+    "framer-motion": "^11.15.0",
+    "lucide-react": "^0.469.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "recharts": "^2.15.0",
+    "viem": "^2.22.0",
+    "wagmi": "^2.14.0"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
     "vite": "^6.0.7"
   },
   "allowScripts": {
