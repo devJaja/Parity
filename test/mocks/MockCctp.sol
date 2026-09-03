@@ -62,7 +62,7 @@ contract MockTokenMessenger {
     }
 
     /// @dev Mirrors `TokenMessengerV2.getMinFeeAmount`.
-    function getMinFeeAmount(uint256 amount) external view virtual returns (uint256) {
+    function getMinFeeAmount(uint256) external view virtual returns (uint256) {
         return minFee;
     }
 }

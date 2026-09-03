@@ -121,7 +121,7 @@ contract EigenLayerLiveForkTest is Test {
         return (reg, ops);
     }
 
-    function _signAll(bytes32 digest, uint256[3] memory keys) private returns (bytes[] memory) {
+    function _signAll(bytes32 digest, uint256[3] memory keys) private pure returns (bytes[] memory) {
         bytes[] memory sigs = new bytes[](keys.length);
         for (uint256 i; i < keys.length; ++i) sigs[i] = _sign(digest, keys[i]);
         return sigs;
@@ -137,7 +137,7 @@ contract EigenLayerLiveForkTest is Test {
         return abi.encode(ops, sigs, uint32(123_456));
     }
 
-    function _sign(bytes32 digest, uint256 sk) private returns (bytes memory) {
+    function _sign(bytes32 digest, uint256 sk) private pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(sk, digest);
         return abi.encodePacked(r, s, v);
     }

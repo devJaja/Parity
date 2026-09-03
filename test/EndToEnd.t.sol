@@ -26,7 +26,7 @@ contract EndToEndTest is ParityTest {
         ledger.forceSetScore(mallory, 100);
     }
 
-    function _flaggedDelayExpected(address who) internal view returns (uint64) {
+    function _flaggedDelayExpected(address) internal view returns (uint64) {
         return uint64(block.number + 1 + hook.flaggedExtraGapBlocks());
     }
 

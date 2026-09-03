@@ -160,7 +160,41 @@ Adapter logic proven by `test/ChainlinkPriceAdapter.t.sol` (7 unit tests, all pa
   price as judge.
 
 Re-run: `forge test --match-path test/ChainlinkPriceAdapter.t.sol` (full suite:
-86 passed / 0 failed / 3 skipped).
+86 passed / 0 failed / 4 skipped — the skip is the fork-only live proof below).
+
+#### Live-hook MVP proof (verifiable artifacts)
+
+`test/HookLiveFork.t.sol` drives the **deployed** `ParityHook` / `LVRReserve` /
+`ChainlinkPriceAdapter` / `ReputationLedger` *by address* on a Base Sepolia fork,
+using the same canonical v4 artifacts the deployment is pinned to, and proves the
+core MVP treatment path works on-chain — no redeployment:
+
+```bash
+forge test --match-path test/HookLiveFork.t.sol --fork-url $BASE_RPC
+```
+
+Three live proofs (all pass, Base Sepolia 84532):
+
+1. **Wiring is live** — the deployed `hook.poolManager()`,
+   `hook.reserve()` ↔ `reserve.hook()`, `reserve.priceAdapter()` →
+   `adapter.feed()` → the live ETH/USD AggregatorV3 (fresh, non-stale) form a
+   coherent, governance-owned graph. The hook is also wired to the deployed
+   `ParityCrossPoolOracle` (`hook.crossPoolOracle()` ≠ 0).
+2. **Flagged swap escrows premium into the deployed reserve** — a
+   `forceSetScore`-flagged exact-input swap through the deployed hook books its
+   150 bps risk premium into the deployed `LVRReserve`, and the same-block
+   second leg is rejected by the delay window (sandwich atomicity killed on the
+   live hook).
+3. **Settlement plumbing runs end-to-end** — after the `verifyBlocks` window
+   elapses, `settlePending` on the deployed reserve settles the record (verified
+   → LP payout queued + `distributeVerified`, or unverified → rolled to LP fees),
+   and a second settle reverts with `AlreadySettled`.
+
+The verified-vs-donated *outcome* depends on live Chainlink feed direction vs.
+pool drift at runtime, so it is covered deterministically by
+`test/LVRVerification.t.sol`, not asserted here. This fork test proves the
+deployed-treatment plumbing and wiring a judge can reproduce against the live
+deployment.
 
 ## Partner technology integrations
 
