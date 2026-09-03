@@ -4,6 +4,7 @@ import {
   Heading,
   Text,
   SimpleGrid,
+  Stat,
   StatLabel,
   StatNumber,
   StatHelpText,
@@ -211,18 +212,20 @@ function StatCard({
   return (
     <Card>
       <CardBody>
-        <Flex align="center" gap={2} mb={2}>
-          {icon}
-          <StatLabel>{label}</StatLabel>
-        </Flex>
-        {badge ? (
-          <Badge colorScheme={tierColor} fontSize="xl" px={3} py={1} borderRadius="md">
-            {value}
-          </Badge>
-        ) : (
-          <StatNumber fontSize="2xl">{value}</StatNumber>
-        )}
-        <StatHelpText mb={0}>{help}</StatHelpText>
+        <Stat>
+          <Flex align="center" gap={2} mb={2}>
+            {icon}
+            <StatLabel>{label}</StatLabel>
+          </Flex>
+          {badge ? (
+            <Badge colorScheme={tierColor} fontSize="xl" px={3} py={1} borderRadius="md">
+              {value}
+            </Badge>
+          ) : (
+            <StatNumber fontSize="2xl">{value}</StatNumber>
+          )}
+          <StatHelpText mb={0}>{help}</StatHelpText>
+        </Stat>
       </CardBody>
     </Card>
   );
