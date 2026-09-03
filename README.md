@@ -102,6 +102,11 @@ The hook address is mined so its lower bits equal the declared permission flags
 with `"PA"` to avoid collisions. Deployment goes through Arachnid's
 Deterministic Deployment Proxy, making addresses reproducible across chains.
 
+> **Demo dashboard (optional):** `frontend/` is a minimal Vite + React + ethers
+> read-only dashboard + permissionless governance calls against the live Base
+> Sepolia deployment (`npm install && npm run dev`). It is presentation-only —
+> the hook needs no frontend to function.
+
 ### Live deployment — Base Sepolia (testnet · chain 84532)
 
 Deployed and verified on-chain with the canonical Circle CCTP V2 integration:
