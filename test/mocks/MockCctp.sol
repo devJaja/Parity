@@ -62,7 +62,17 @@ contract MockTokenMessenger {
     }
 
     /// @dev Mirrors `TokenMessengerV2.getMinFeeAmount`.
-    function getMinFeeAmount(uint256 amount) external view returns (uint256) {
+    function getMinFeeAmount(uint256 amount) external view virtual returns (uint256) {
         return minFee;
+    }
+}
+
+/// @notice `MockTokenMessenger` variant whose fee oracle (`getMinFeeAmount`) always reverts,
+///         simulating CCTP v2 deployments that expose fee accessors through a storage layout
+///         unreadable via `staticcall`. The bridge must fall back to a configured max-fee fraction
+///         and still complete the burn instead of bricking the rebalance.
+contract MockTokenMessengerRevertFee is MockTokenMessenger {
+    function getMinFeeAmount(uint256) external pure override returns (uint256) {
+        revert("fee oracle unavailable");
     }
 }

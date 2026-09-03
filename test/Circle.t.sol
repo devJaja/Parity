@@ -10,7 +10,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {Constants} from "@uniswap/v4-core/test/utils/Constants.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 
-import {MockTokenMessenger} from "./mocks/MockCctp.sol";
+import {MockTokenMessenger, MockTokenMessengerRevertFee} from "./mocks/MockCctp.sol";
 
 /// @notice Circle CCTP integration (doc §6 partner row): the reserve's idle USDC can be
 ///         burned toward another CCTP domain and swept back in on arrival, while premiums
@@ -150,5 +150,30 @@ contract CircleCctpTest is ParityTest {
         vm.prank(ethBridge);
         vm.expectRevert(LVRReserve.InsufficientIdle.selector);
         reserve.transferIdleToBridge(Currency.wrap(address(0)), 1);
+    }
+
+    /// @notice Some canonical CCTP v2 deployments expose `getMinFeeAmount` through a storage
+    ///     layout that reverts on staticcall (observed on Base Sepolia). The bridge must fall back
+    ///     to the owner-configured max-fee fraction and complete the burn rather than brick the
+    ///     cross-chain rebalance.
+    function test_rebalance_falls_back_when_fee_oracle_reverts() public {
+        MockTokenMessengerRevertFee revertMessenger = new MockTokenMessengerRevertFee();
+        CctpBridge fallbackBridge = new CctpBridge(
+            IERC20Metadata(address(usdc)), reserve, ITokenMessengerV2(address(revertMessenger)), address(this)
+        );
+        reserve.setBridge(address(fallbackBridge));
+
+        uint256 minFeeFraction = 0.05e16; // 0.05% of amount, a typical CCTP floor
+        fallbackBridge.setFallbackMaxFeeFraction(BASE_DOMAIN, minFeeFraction);
+        fallbackBridge.setDestinationDomain(BASE_DOMAIN, true);
+
+        uint256 amount = 1_000e6;
+        fallbackBridge.rebalance(amount, BASE_DOMAIN);
+
+        assertEq(usdc.balanceOf(address(revertMessenger)), amount, "burn still completes without fee oracle");
+        assertEq(usdc.balanceOf(address(reserve)), RESERVE_SEED - amount);
+
+        (, uint32 dom,,,,,,) = revertMessenger.burns(1);
+        assertEq(uint256(dom), uint256(BASE_DOMAIN));
     }
 }

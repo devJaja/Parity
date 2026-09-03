@@ -69,6 +69,12 @@ contract CctpBridge is Ownable {
     /// @notice CCTP domains this deployment may rebalance toward (Ethereum=0, Base=6, ...).
     mapping(uint32 domain => bool allowed) public destinationDomainAllowed;
 
+    /// @notice Fallback `maxFee` expressed as 1e18-scaled fraction of `amount`, used to size the
+    ///         CCTP `maxFee` when the canonical `getMinFeeAmount` view is unavailable on-chain
+    ///         (some CCTP v2 deployments expose it via a fee/upgrade storage layout that reverts
+    ///         on `staticcall`). Set by the owner for each destination.
+    mapping(uint32 domain => uint256 fallbackMaxFeeFraction) public fallbackMaxFeeFraction;
+
     // ------------------------------------------------------------------
     // Errors / events
     // ------------------------------------------------------------------
@@ -97,6 +103,13 @@ contract CctpBridge is Ownable {
         emit DestinationDomainSet(domain, allowed);
     }
 
+    /// @notice Configures the fallback `maxFee` fraction (1e18-scaled proportion of `amount`)
+    ///         used when the canonical `getMinFeeAmount` view reverts on-chain. 0 disables the
+    ///         fallback and requires the live view to succeed.
+    function setFallbackMaxFeeFraction(uint32 domain, uint256 maxFeeFraction) external onlyOwner {
+        fallbackMaxFeeFraction[domain] = maxFeeFraction;
+    }
+
     /// @notice Upgrades to another messenger deployment (e.g. a future CCTP version),
     ///         preserving the same burn-token and reserve wiring.
     function setTokenMessenger(ITokenMessengerV2 messenger_) external onlyOwner {
@@ -112,6 +125,32 @@ contract CctpBridge is Ownable {
     ///         Fast is sufficient for compensation rebalancing.
     uint32 public constant MIN_FINALITY_THRESHOLD = 1000;
 
+    /// @notice Resistance-safe maximum fee fraction — CCTP only requires `maxFee < amount`, so
+    ///         we cap the fee we ever pass at 1% of `amount` (a generous ceiling for live fees),
+    ///         keeping the burn economically safe while guaranteeing `maxFee < amount`.
+    uint256 internal constant MAX_FEE_PCT = 1e16; // 1%
+
+    /// @notice Calls the canonical `getMinFeeAmount` view safely. Some CCTP v2 deployments expose
+    ///         the fee accessors through a storage layout that reverts on `staticcall`; in that
+    ///         case we fall back to the owner-configured `fallbackMaxFeeFraction` for the domain so
+    ///         a rebalance is never blocked by an unreadable fee oracle.
+    function _maxFeeFor(uint32 destinationDomain, uint256 amount) private view returns (uint256) {
+        (bool ok, bytes memory data) =
+            address(tokenMessenger).staticcall(abi.encodeWithSelector(ITokenMessengerV2.getMinFeeAmount.selector, amount));
+        if (ok && data.length >= 32) {
+            uint256 minFee = abi.decode(data, (uint256));
+            // min fee + 10% buffer, but never let the fee alone consume the burn.
+            uint256 bufferedFee = minFee + (minFee / 10) + 1;
+            return bufferedFee > amount ? amount : bufferedFee;
+        }
+        // Fallback: fee oracle unavailable on-chain. Use the owner-set fraction (0 => passthrough
+        // with the protocol fee ceiling).
+        uint256 fraction = fallbackMaxFeeFraction[destinationDomain];
+        uint256 fallbackFee = fraction != 0 ? (amount * fraction) / 1e18 : (amount * MAX_FEE_PCT) / 1e18;
+        uint256 maxFee = fallbackFee + 1;
+        return maxFee > amount ? amount : maxFee;
+    }
+
     /// @notice Burns `amount` of reserve-held USDC toward `destinationDomain`; the mint
     ///         recipient is this bridge's counterpart address space (this contract on the
     ///         destination chain). Only idle USDC moves — escrowed premiums are untouched.
@@ -126,9 +165,9 @@ contract CctpBridge is Ownable {
 
         usdc.forceApprove(address(tokenMessenger), amount);
 
-        // V2 requires maxFee < amount and >= the domain minimum fee; use min fee + buffer.
-        uint256 minFee = tokenMessenger.getMinFeeAmount(amount);
-        uint256 maxFee = minFee + (minFee / 10) + 1; // 10% buffer, strictly below amount is enforced by CCTP
+        // V2 requires maxFee < amount and >= the domain minimum fee; query the canonical fee
+        // oracle, falling back to a configured/ceiled value when it is unreadable on-chain.
+        uint256 maxFee = _maxFeeFor(destinationDomain, amount);
         require(maxFee < amount, "fee too high");
 
         tokenMessenger.depositForBurn(

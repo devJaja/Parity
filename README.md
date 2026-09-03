@@ -111,7 +111,7 @@ Deployed and verified on-chain with the canonical Circle CCTP V2 integration:
 | `ParityHook` | `0x95E4a3Aa11c44EB8de369830E9f956703F5585cC` |
 | `LVRReserve` | `0x07fabE011c4BB617a12E33098258586fD066EcDF` |
 | `ChainlinkPriceAdapter` | `0x81e9bb58e41888E4c3f9b4523d4c62290F2AAa46` |
-| `CctpBridge` | `0x842b88D44AA863B8486A1F41d17FAD11482ba4D0` |
+| `CctpBridge` (V2) | `0xc3127A26Bf8f21a58e4AA5b851C886Ad6CF00Ee6` |
 | PoolManager (v4) | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` |
 | Chainlink ETH/USD feed | `0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1` |
 | Circle TokenMessengerV2 | `0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA` |
@@ -121,6 +121,16 @@ Owner: `0x664C1791ad9189ebAEB63716d29EeCaA405c732D`. The `CctpBridge` is
 authorized on the `LVRReserve` and wired to the real canonical `TokenMessengerV2`,
 so `rebalance()` originates genuine CCTP V2 burns for cross-chain compensation
 capital movement.
+
+> **CCTP V2 fee-oracle robustness.** Base Sepolia's canonical `TokenMessengerV2`
+> reverts its fee accessors (`getMinFeeAmount` / `minFee`) on `staticcall`.
+> `CctpBridge.rebalance` therefore sizes `maxFee` via a safe `staticcall` and, when
+> the oracle reverts, falls back to an owner-configured `fallbackMaxFeeFraction`
+> per destination domain (a `maxFee` ceiling is always enforced strictly below
+> `amount`). This is verified live by `test/CircleLiveFork.t.sol`
+> (`forge test --match-path test/CircleLiveFork.t.sol --fork-url $BASE_RPC`),
+> which drives the *deployed* bridge through a real `rebalance(→ Ethereum domain 0)`
+> against the live messenger.
 
 ## Partner technology integrations
 
