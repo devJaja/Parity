@@ -132,6 +132,36 @@ capital movement.
 > which drives the *deployed* bridge through a real `rebalance(→ Ethereum domain 0)`
 > against the live messenger.
 
+#### Chainlink evidence (verifiable artifacts)
+
+On-chain (Base Sepolia, 84532 — live):
+
+| Artifact | Address / value |
+| --- | --- |
+| `ChainlinkPriceAdapter` | `0x81e9bb58e41888E4c3f9b4523d4c62290F2AAa46` (code: 989 bytes) |
+| Feed it wraps (`feed()`) | `0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1` |
+| `maxStalenessSeconds()` | `3600` |
+| LVRReserve `priceAdapter` | `LVRReserve.sol:74`, wired via `_deployAdapter` (script/00) |
+
+Live feed readbacks (the adapter's `latestRaw()` against the real AggregatorV3):
+- `decimals() = 8`, `description() = "ETH / USD"`, `version() = 4`
+- Latest round answered `240079959788` (8-dec → ≈ $2400.79/ETH), non-stale.
+
+Adapter logic proven by `test/ChainlinkPriceAdapter.t.sol` (7 unit tests, all pass):
+- 18-decimal normalization for 8-, 6- and 18-decimal feeds — the LVR verifier
+  compares pool and reference prices in identical units.
+- `StalePrice` revert when the answer exceeds `maxStalenessSeconds`
+  (`latestPrice18`, `src/ChainlinkPriceAdapter.sol:77`).
+- `InvalidAnswer` on non-positive answers and on >18-decimal feeds.
+- The same guard is exercised end-to-end by `test/LVRVerification.t.sol`
+  (`test_oracle_dead_at_t0_marks_record_auto_unverifiable`,
+  `test_oracle_dying_between_t0_and_settle_degrades_gracefully`), where a dead
+  feed makes the reserve safely *auto-unverify* rather than trust the pool's own
+  price as judge.
+
+Re-run: `forge test --match-path test/ChainlinkPriceAdapter.t.sol` (full suite:
+86 passed / 0 failed / 3 skipped).
+
 ## Partner technology integrations
 
 1. **Uniswap v4 hooks** — the entire protocol surface.
