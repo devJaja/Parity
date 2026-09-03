@@ -79,13 +79,13 @@ penalties onto a victim's score.
 | `src/eigenlayer/ParityCrossPoolOracle.sol` | EigenLayer AVS consumer: quorum-verified cross-pool reputation attestations (ECDSAStakeRegistry `isValidSignature`), monotonic nonce replay protection |
 | `src/eigenlayer/IECDSAStakeRegistry.sol` | ABI-faithful consumer view of EigenLayer middleware's ECDSAStakeRegistry |
 | `script/00_DeployParity.s.sol` | Full stack deployment incl. CREATE2-mined hook address; optional partner modules via env vars |
-| `test/` | Foundry suite (86 unit/integration tests + 4 fork-only live proofs): unit, integration, verification, identity-spoofing, decimal-normalization, CCTP rebalancing, AVS seeding, LP pruning, end-to-end |
+| `test/` | Foundry suite (86 unit/integration tests + 5 fork-only live proofs): unit, integration, verification, identity-spoofing, decimal-normalization, CCTP rebalancing, AVS seeding, LP pruning, end-to-end |
 
 ## Quick start
 
 ```bash
 forge install        # already vendored in lib/
-forge test           # 86 tests across 15 suites (+4 fork-only live proofs, skipped without RPC)
+forge test           # 86 tests across 16 suites (+5 fork-only live proofs, skipped without RPC)
 
 # Local deployment against Anvil:
 anvil &
@@ -165,7 +165,7 @@ Adapter logic proven by `test/ChainlinkPriceAdapter.t.sol` (7 unit tests, all pa
   price as judge.
 
 Re-run: `forge test --match-path test/ChainlinkPriceAdapter.t.sol` (full suite:
-86 passed / 0 failed / 4 skipped — the skip is the fork-only live proof below).
+86 passed / 0 failed / 5 skipped — the skips are the fork-only live proofs).
 
 #### Live-hook MVP proof (verifiable artifacts)
 
@@ -200,6 +200,28 @@ pool drift at runtime, so it is covered deterministically by
 `test/LVRVerification.t.sol`, not asserted here. This fork test proves the
 deployed-treatment plumbing and wiring a judge can reproduce against the live
 deployment.
+
+#### Live canonical WETH/USDC seed (real tokens, real feed)
+
+`test/PushLivePool.t.sol` goes one step further: it seeds a **real canonical
+WETH/USDC** pool (no mocks) against the deployed hook on the Base Sepolia fork,
+initialized at the live ETH/USD Chainlink price, then drives the full treatment
+path with the real deployed reserve and ledger:
+
+```bash
+forge test --match-path test/PushLivePool.t.sol --fork-url $BASE_RPC
+```
+
+It mints canonical USDC via the FiatToken masterMinter, wraps fork ETH into WETH,
+creates a WETH/USDC pool (USDC = currency0, WETH = currency1, fee 3000 / tick 60),
+seeds a concentrated LP position through the canonical PositionManager, `forceSetScore`-flags
+a trader, runs a one-sided buy-WETH-with-USDC swap (~150 bps premium escrowed into the
+deployed `LVRReserve`), confirms the same-block re-entry is rejected by the delay gate,
+then elapses the window and settles. Because the pool is priced in the real ETH/USD feed,
+the settlement semantics are the production ones (a confirmed one-sided drift classifies as
+*verified* and pays out the LP; an unverified one is donated to in-range LPs).
+
+Passing live (fork) and skipped without an RPC, like the other fork proofs.
 
 ## Partner technology integrations
 
@@ -307,7 +329,7 @@ ABI compatibility with the **audited** EigenLayer `ECDSAStakeRegistry`
 | signatureData encoding | `(address[], bytes[], uint32)` |
 
 Re-run the proof anytime: `forge test --match-path test/EigenLayerLiveFork.t.sol`
-(fork-independent; suite: 86 passed / 0 failed / 4 skipped).
+(fork-independent; suite: 86 passed / 0 failed / 5 skipped).
 
 > **Honest scope.** This proves the AVS-*consumer* integration end-to-end:
 > the oracle verifies quorum signatures using the real audited registry ABI and
