@@ -28,6 +28,7 @@ import {
   ModalHeader,
   ModalCloseButton,
   ModalBody,
+  Image,
 } from "@chakra-ui/react";
 import { MoonIcon, SunIcon, HamburgerIcon } from "@chakra-ui/icons";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
@@ -83,7 +84,14 @@ export default function Navbar() {
       zIndex={1000}
     >
       <Flex h={16} alignItems="center" justifyContent="space-between" px={4} maxW="7xl" mx="auto">
-        <Flex alignItems="center">
+        <Flex alignItems="center" gap={2}>
+          <Image
+            src="/Parity-logo.png"
+            alt="Parity"
+            boxSize="34px"
+            objectFit="contain"
+            draggable={false}
+          />
           <Heading as="h1" size="lg" color="brand.500" letterSpacing="-0.5px">
             Parity
           </Heading>
