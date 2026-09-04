@@ -23,6 +23,36 @@ Swapper ──▶ ReputationLedger ──▶ ParityHook (v4 hook)
                           LPs made whole via v4 `donate()`
 ```
 
+## 🏆 3-minute judge demo
+
+**1. Pitch (10s).** "Parity is a Uniswap v4 hook that turns LVR from an unavoidable
+LP tax into a self-funding insurance pool. It flags toxic swappers, breaks their
+sandwich by rejecting same-block legs, charges a 150 bps premium, and after a
+Chainlink-verified window pays the LPs who bore the risk."
+
+**2. Live frontend** (`/`, `/swap`, `/analysis`) — connect any wallet on Base
+Sepolia to read **live on-chain state** (deployed wiring resolved from the hook,
+your reputation tier/score, 150 bps premium, reserve config, live ETH/USD Chainlink
+feed, pending/payouts). The Swap Demo page leads with a **Live Proof — Fork Tests**
+hero: 3 fork tests driving the **deployed** contracts with **real canonical
+WETH/USDC**, no mocks.
+
+**3. The receipts** — run in front of the judge (proves it on the *deployed*
+contracts with real tokens + real feed, not a mock):
+
+```bash
+forge test --fork-url $BASE_RPC -vv
+# HookLiveFork    (3/3): flagged swap escrows 150bp premium; same-block re-entry rejected; settlement pays LP
+# SeedPoolLiveFork(1/1): real canonical pool seeded; post-seed swap SUCCEEDS (no revert)
+# PushLivePool    (1/1): full flag → swap → escrow → settle → LP payout via real feed
+# + 86 unit/integration tests: delay gate, spoofing resistance, decimal normalization, EWMA floor, CCTP, AVS
+```
+
+**Why this wins:** every fork test calls the **actual deployed contracts** — the
+same ones the frontend reads — seeded with **real** USDC/WETH and priced by the
+**real** Chainlink ETH/USD feed. Judges can reproduce it live; no mocked liquidity,
+no fake oracles.
+
 ## Why ordering delay kills the sandwich
 
 Atomic arbitrage requires both sandwich legs in the same block. Parity's hook
