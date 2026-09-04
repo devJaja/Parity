@@ -253,8 +253,9 @@ export default function SwapCard() {
               <AlertDescription>
                 The live Base Sepolia deploy has <strong>no seeded pool</strong>, so a swap will revert on-chain
                 (pool not initialized). The full premium/verification path is proven via fork tests (
-                <code>HookLiveFork</code> / <code>PushLivePool</code>). This form stays wired so it works the
-                instant a pool is seeded.
+                <code>HookLiveFork</code> / <code>SeedPoolLiveFork</code> / <code>PushLivePool</code>). Once the owner
+                seeds the cheap 1e9 band, use swaps of roughly <strong>$5–$20 USDC</strong> so they clear the narrow
+                in-range band. This form stays wired so it works the instant a pool is seeded.
               </AlertDescription>
             </Alert>
 

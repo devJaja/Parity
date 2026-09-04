@@ -34,6 +34,7 @@ interface IERC20ish {
 ///      DEPLOYED ParityHook SUCCEEDS (no revert: pool initialized + LP in range).
 ///      On the live chain the owner must first fund the seeder with USDC + WETH; on this fork we
 ///      mint canonical USDC (masterMinter) + wrap fork ETH to simulate that funding.
+///      Cheap band: liquidity=1e9, tick±120, ~$186 USDC + 0.0002 WETH funding.
 ///      Run: forge test --match-path test/SeedPoolLiveFork.t.sol --fork-url $BASE_RPC
 contract SeedPoolLiveForkTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
@@ -61,15 +62,15 @@ contract SeedPoolLiveForkTest is Test, Deployers {
             address(permit2), address(swapRouter), PARITY_HOOK
         );
 
-        // Simulate the owner having funded the seeder (~$40k USDC + 0.1 WETH canonical).
-        _fund(address(seeder), 40_000e6, 0.1e18);
+        // Simulate the owner having funded the seeder (cheap 1e9 band: ~$186 USDC + 0.0002 WETH).
+        _fund(address(seeder), 300e6, 0.001e18);
 
-        // Owner seeds (mirrors SeedPool.run() sizing at the live price).
+        // Owner seeds (mirrors SeedPool.run() at the live price: 1e9 liquidity, tick ±120).
         PoolKey memory key = PoolKey(Currency.wrap(USDC), Currency.wrap(WETH), 3000, 60, IHooks(PARITY_HOOK));
         int24 priceTick = -77_880;
-        int24 tickLower = priceTick - 3 * 60;
-        int24 tickUpper = priceTick + 3 * 60;
-        uint128 liquidity = 1e11;
+        int24 tickLower = priceTick - 2 * 60;
+        int24 tickUpper = priceTick + 2 * 60;
+        uint128 liquidity = 1e9;
         (uint256 amt0, uint256 amt1) = _amountsFor(tickLower, tickUpper, liquidity);
 
         vm.prank(OWNER);
@@ -79,13 +80,13 @@ contract SeedPoolLiveForkTest is Test, Deployers {
 
         // A real canonical swap now succeeds against the deployed hook (would revert pre-seed).
         address trader = makeAddr("trader");
-        _fund(trader, 2_000e6, 0);
+        _fund(trader, 200e6, 0);
 
         vm.startPrank(trader);
         IERC20ish(USDC).approve(address(swapRouter), type(uint256).max);
         IERC20ish(USDC).approve(address(permit2), type(uint256).max);
         swapRouter.swapExactTokensForTokens({
-            amountIn: 1_000e6, // $1000 USDC in
+            amountIn: 20e6, // $20 USDC in (cheap band fits ~$20 before price exits range)
             amountOutMin: 0,
             zeroForOne: true,
             poolKey: key,

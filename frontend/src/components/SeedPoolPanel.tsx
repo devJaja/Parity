@@ -26,13 +26,15 @@ import {
 } from "../contracts";
 import { formatAddress } from "../utils/format";
 
-// Live-price concentrated sizing (matches script/SeedParityPool.s.sol:SeedPool.run()).
+// Cheap concentrated sizing (matches script/SeedParityPool.s.sol:SeedPool.run()).
+// Liquidity 1e9 over tick ±120 (~5% band) needs only ~$186 USDC + 0.000167 WETH to fund.
 const PRICE_TICK = -77880;
 const SPACING = 60;
-const LIQUIDITY = 100000000000n; // 1e11
-// amount0 (USDC, 6-dec) and amount1 (WETH, 18-dec) for liquidity=1e11 around live price.
-const AMOUNT0_MAX = 33230440157n; // ~$33.2k USDC (computed for the narrow band)
-const AMOUNT1_MAX = 22719932n; // ~0.0227 WETH
+const HALF_SPACINGS = 2;
+const LIQUIDITY = 1000000000n; // 1e9  (~$186 band)
+// amount0 (USDC, 6-dec) and amount1 (WETH, 18-dec) for liquidity=1e9 around live price.
+const AMOUNT0_MAX = 186120073n; // ~$186 USDC (computed for the band)
+const AMOUNT1_MAX = 166556n; // ~0.000167 WETH
 
 export default function SeedPoolPanel() {
   const { address, isConnected } = useAccount();
@@ -94,7 +96,7 @@ export default function SeedPoolPanel() {
         address: PARITY_SEEDER_ADDRESS as `0x${string}`,
         abi: POOL_SEEDER_ABI as never,
         functionName: "seed",
-        args: [BigInt(PRICE_TICK - 3 * SPACING), BigInt(PRICE_TICK + 3 * SPACING), LIQUIDITY, AMOUNT0_MAX, AMOUNT1_MAX],
+        args: [BigInt(PRICE_TICK - HALF_SPACINGS * SPACING), BigInt(PRICE_TICK + HALF_SPACINGS * SPACING), LIQUIDITY, AMOUNT0_MAX, AMOUNT1_MAX],
       },
       {
         onSuccess: (h) => toast({ title: "Pool seeded", description: h, status: "success" }),
@@ -176,8 +178,8 @@ export default function SeedPoolPanel() {
                 <Alert status="info">
                   <AlertIcon />
                   <AlertDescription>
-                    Fund the seeder with <strong>USDC + WETH</strong> (~$33k USDC + 0.023 WETH for the
-                    liquidity=1e11 band), then seed. Fund by transferring tokens to the seeder, or use the
+                    Fund the seeder with <strong>USDC + WETH</strong> (~$186 USDC + 0.00017 WETH for the
+                    liquidity=1e9 band), then seed. Fund by transferring tokens to the seeder, or use the
                     pull button which pulls exactly the required amounts from your wallet.
                   </AlertDescription>
                 </Alert>

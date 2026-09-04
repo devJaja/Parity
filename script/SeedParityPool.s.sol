@@ -213,9 +213,9 @@ contract SeedPool is Script {
 
         // Narrow concentrated range around the live price; liquidity sized to seeder funding.
         int24 priceTick = -77_880;
-        int24 tickLower = priceTick - 3 * 60;
-        int24 tickUpper = priceTick + 3 * 60;
-        uint128 liquidity = 1e11;
+        int24 tickLower = priceTick - 2 * 60;
+        int24 tickUpper = priceTick + 2 * 60;
+        uint128 liquidity = 1e9;
         (uint256 amt0, uint256 amt1) = _amountsFor(tickLower, tickUpper, liquidity);
 
         vm.startBroadcast(pk);
