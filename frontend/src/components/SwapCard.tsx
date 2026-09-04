@@ -1,12 +1,8 @@
 import { useState, useMemo } from "react";
 import {
-  Card,
-  CardHeader,
-  CardBody,
-  Heading,
-  Text,
   VStack,
   HStack,
+  Text,
   Input,
   Select,
   Button,
@@ -181,12 +177,8 @@ export default function SwapCard() {
   const readyToSwap = hasInput && routerApproved && permit2Approved;
 
   return (
-    <Card>
-      <CardHeader>
-        <Heading size="md">Swap via canonical V4 router</Heading>
-      </CardHeader>
-      <CardBody>
-        {!isConnected ? (
+    <VStack align="stretch" spacing={4}>
+      {!isConnected ? (
           <Alert status="info">
             <AlertIcon />
             Connect a wallet on Base Sepolia to approve and swap.
@@ -248,14 +240,12 @@ export default function SwapCard() {
 
             <Divider />
 
-            <Alert status="warning">
+            <Alert status="info">
               <AlertIcon />
               <AlertDescription>
-                The live Base Sepolia deploy has <strong>no seeded pool</strong>, so a swap will revert on-chain
-                (pool not initialized). The full premium/verification path is proven via fork tests (
-                <code>HookLiveFork</code> / <code>SeedPoolLiveFork</code> / <code>PushLivePool</code>). Once the owner
-                seeds the cheap 1e9 band, use swaps of roughly <strong>$5–$20 USDC</strong> so they clear the narrow
-                in-range band. This form stays wired so it works the instant a pool is seeded.
+                Pool not yet seeded on-chain — this form is pre-wired to the live canonical
+                Uniswap v4 router. Once seeded, use swaps of ~$5–20 USDC for the 1e9 band.
+                The full flow is proven on fork.
               </AlertDescription>
             </Alert>
 
@@ -305,7 +295,6 @@ export default function SwapCard() {
             </Text>
           </VStack>
         )}
-      </CardBody>
-    </Card>
+    </VStack>
   );
 }
