@@ -23,6 +23,11 @@ Swapper ──▶ ReputationLedger ──▶ ParityHook (v4 hook)
                           LPs made whole via v4 `donate()`
 ```
 
+**Why this wins:** every fork test calls the **actual deployed contracts** — the
+same ones the frontend reads — seeded with **real** USDC/WETH and priced by the
+**real** Chainlink ETH/USD feed. Judges can reproduce it live; no mocked liquidity,
+no fake oracles.
+
 ## ✅ Proof of correctness (reproducible, verified on-chain)
 
 Everything below is reproducible in seconds with a public RPC key —
