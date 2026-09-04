@@ -28,6 +28,49 @@ same ones the frontend reads — seeded with **real** USDC/WETH and priced by th
 **real** Chainlink ETH/USD feed. Judges can reproduce it live; no mocked liquidity,
 no fake oracles.
 
+## The problem
+
+Every Uniswap V3/V4 LP pays a recurring, hidden cost called **LVR —
+loss-versus-rebalancing**. Whenever the true price of a pool's asset moves, an
+arbitrageur trades against the *stale* internal pool price first and then
+rebalances the pool to equilibrium — capturing the full move as profit while the
+LP is left holding a pool that re-prices *against* them. The result:
+
+- LPs are structurally **paid last**: the arb extracts value out of every price
+  move, and the LP absorbs the loss.
+- The extractions are **atomic** — both sandwich legs land in a single block —
+  so they are fast and cheap for the extractor and impossible to out-run.
+- Nothing the LP does today changes LPs' exposure: the tax is unavoidable.
+
+The core annoyance: the extractors *know* where the price is heading (the arb
+profit *is* that information), and the LP pays for that informational edge every
+single time.
+
+## The solution
+
+**Make the extractors pay for the damage instead of the LPs.** Parity is a
+Uniswap v4 hook that sits in front of every swap and converts this unavoidable
+LP tax into a self-funding insurance pool:
+
+1. **Identify** — classify each swapper into a reputation tier (Trusted,
+   Neutral, Flagged) from their observed on-chain history via a `ReputationLedger`.
+2. **De-risk** — break the extractor's atomicity with an **ordering delay**: a
+   swapper is rejected if their swap would land in the same block as their
+   previous one (one extra block on the Flagged tier). Honest retail never
+   notices; MEV bots lose their same-block guarantee *without being censored*.
+3. **Charge** — a Flagged exact-input swap escrows a **150 bps premium** into
+   the `LVRReserve`.
+4. **Verify** — after `verifyBlocks`, the reserve compares the realized price
+   drift against the pre-trade deviation using the **Chainlink** reference,
+   across a configurable noise floor.
+5. **Pay** — if the move the flagged trader predicted actually happened, the
+   premium is paid **pro-rata to the LPs** who bore the risk — via `donate()`.
+   If not, it's donated back to in-range LPs and trains the EWMA noise floor.
+
+The result is a **closed loop**: extractors fund the insurance, LPs get made
+whole, and no new token is required — it works with standard v4 routing out of
+the box.
+
 ## ✅ Proof of correctness (reproducible, verified on-chain)
 
 Everything below is reproducible in seconds with a public RPC key —
